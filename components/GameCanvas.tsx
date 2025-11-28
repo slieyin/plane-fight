@@ -356,7 +356,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
     // UI Overlay (No Shake)
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 20px monospace';
-    ctx.fillText(`SCORE: ${Math.floor(scoreRef.current)}`, 20, 40);
+    // Translate "SCORE" to Chinese
+    ctx.fillText(`得分: ${Math.floor(scoreRef.current)}`, 20, 40);
     
     // Health Bar
     ctx.lineWidth = 2;

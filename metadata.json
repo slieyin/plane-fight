@@ -1,5 +1,5 @@
 {
-  "name": "Neon Skyfighter",
-  "description": "A high-octane, neon-styled mobile space shooter. Features AI-generated mission briefings and multiple difficulty levels.",
+  "name": "霓虹空战",
+  "description": "一款快节奏的霓虹风格手机太空射击游戏。具有 AI 生成的任务简报和多种难度级别。",
   "requestFramePermissions": []
 }
