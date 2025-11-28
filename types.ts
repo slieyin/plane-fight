@@ -17,7 +17,7 @@ export interface Point {
   y: number;
 }
 
-export type ItemType = 'HEAL' | 'WEAPON_UPGRADE';
+export type ItemType = 'HEAL' | 'WEAPON_UPGRADE' | 'BOSS_REWARD';
 
 export interface Entity {
   id?: string; // Optional for some temp particles
@@ -44,6 +44,7 @@ export interface Entity {
   // Item/Boss specific
   itemType?: ItemType;
   attackTimer?: number;
+  bossTier?: number; // 1 for normal, 2 for elite/infinite
 }
 
 export interface MissionBriefing {
