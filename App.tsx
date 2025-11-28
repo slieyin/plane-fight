@@ -13,7 +13,7 @@ const App: React.FC = () => {
     setDifficulty(selectedDifficulty);
     setGameState(GameState.LOADING_BRIEFING);
     
-    // Fetch AI Briefing
+    // Fetch AI Briefing (or fallback)
     const data = await generateMissionBriefing(selectedDifficulty);
     setBriefing(data);
     setGameState(GameState.BRIEFING);
@@ -108,6 +108,12 @@ const App: React.FC = () => {
             >
               开始任务
             </button>
+            
+            <div className="mt-4 flex justify-center opacity-50">
+               <span className="text-[10px] text-cyan-500 uppercase tracking-wider">
+                 LINK: SECURE // ENCRYPTION: 256-BIT
+               </span>
+            </div>
           </div>
         </div>
       )}
