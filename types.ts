@@ -17,8 +17,10 @@ export interface Point {
   y: number;
 }
 
+export type ItemType = 'HEAL' | 'WEAPON_UPGRADE';
+
 export interface Entity {
-  id: string;
+  id?: string; // Optional for some temp particles
   x: number;
   y: number;
   width: number;
@@ -27,7 +29,21 @@ export interface Entity {
   vy: number;
   color: string;
   hp: number;
-  type: 'PLAYER' | 'ENEMY_BASIC' | 'ENEMY_SHOOTER' | 'PLAYER_BULLET' | 'ENEMY_BULLET' | 'PARTICLE';
+  maxHp?: number;
+  type: 'PLAYER' | 'ENEMY_BASIC' | 'ENEMY_SHOOTER' | 'PLAYER_BULLET' | 'ENEMY_BULLET' | 'PARTICLE' | 'BOSS' | 'ITEM';
+  
+  // Specific properties
+  rotation?: number;
+  rotationSpeed?: number;
+  dead?: boolean;
+  life?: number; // For particles
+  decay?: number; // For particles
+  size?: number; // For particles/stars
+  isShockwave?: boolean; // For particles
+  
+  // Item/Boss specific
+  itemType?: ItemType;
+  attackTimer?: number;
 }
 
 export interface MissionBriefing {
