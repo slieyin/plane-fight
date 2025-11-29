@@ -62,7 +62,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     x: 0, y: 0, width: 40, height: 48, 
     hp: 5, maxHp: 5, vx: 0, vy: 0, 
     color: '#00ff99', type: 'PLAYER',
-    invulnerableTimer: 0
+    invulnerableTimer: 0,
+    jammedTimer: 0
   });
 
   const playerStats = useRef({
@@ -138,23 +139,30 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
 
   const spawnPlayerBullet = (x: number, y: number, angleOffset: number = 0) => {
     const stats = playerStats.current;
+    const isJammed = (playerRef.current.jammedTimer || 0) > 0;
+
     const speed = BULLET_SPEED;
     const vx = Math.sin(angleOffset) * speed;
     const vy = -Math.cos(angleOffset) * speed;
     
-    const size = Math.min(12, 4 + (stats.damage - 1) * 2);
+    // Debuff: Reduced bullet size and damage calculation effectiveness if jammed
+    let effectiveDamage = stats.damage;
+    if (isJammed) effectiveDamage = Math.max(1, Math.floor(stats.damage / 2));
+
+    const size = Math.min(12, 4 + (effectiveDamage - 1) * 2);
+    const color = isJammed ? '#888888' : (stats.damage > 3 ? '#ffaaee' : (stats.damage > 1 ? '#ffff00' : '#00ffff'));
 
     bulletsRef.current.push({
-      x: x - size/2, y, width: size, height: 16 + (stats.damage * 2), 
+      x: x - size/2, y, width: size, height: 16 + (effectiveDamage * 2), 
       vx: vx, vy: vy, 
-      color: stats.damage > 3 ? '#ffaaee' : (stats.damage > 1 ? '#ffff00' : '#00ffff'), 
-      hp: stats.damage, 
+      color: color, 
+      hp: effectiveDamage, 
       type: 'PLAYER_BULLET'
     });
     
     // Muzzle flash
     particlesRef.current.push({
-      x: x, y: y, vx: (Math.random() - 0.5) * 2, vy: 2, life: 0.2, decay: 0.1, color: '#00ffff', size: 3, type: 'PARTICLE', hp: 0, width: 0, height: 0
+      x: x, y: y, vx: (Math.random() - 0.5) * 2, vy: 2, life: 0.2, decay: 0.1, color: color, size: 3, type: 'PARTICLE', hp: 0, width: 0, height: 0
     });
   };
 
@@ -166,24 +174,43 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     });
   };
 
+  const spawnMissile = (x: number, y: number) => {
+    bulletsRef.current.push({
+        x: x, y: y, width: 10, height: 20,
+        vx: 0, vy: 2, // Initial speed
+        color: '#ff3300', hp: 1, type: 'ENEMY_MISSILE',
+        rotation: 0
+    });
+  };
+
+  const spawnWave = (x: number, y: number) => {
+      bulletsRef.current.push({
+          x: x, y: y, width: 20, height: 20, // Start small
+          vx: 0, vy: 0,
+          color: '#00ccff', hp: 999, type: 'ENEMY_WAVE',
+          life: 2.0 // Seconds duration
+      });
+  };
+
   const spawnEnemy = (canvasWidth: number) => {
     // Stop spawning basic enemies if Final Boss (Tier 3) is active
     const boss = enemiesRef.current.find(e => e.type === 'BOSS');
     if (boss && boss.bossTier === 3) return;
 
     const rand = Math.random();
-    let type: 'ENEMY_BASIC' | 'ENEMY_SHOOTER' | 'ENEMY_ELITE' | 'ENEMY_KAMIKAZE' = 'ENEMY_BASIC';
+    let type: 'ENEMY_BASIC' | 'ENEMY_SHOOTER' | 'ENEMY_ELITE' | 'ENEMY_KAMIKAZE' | 'ENEMY_MISSILE_DRONE' | 'ENEMY_JAMMER' = 'ENEMY_BASIC';
     
     const hardMode = difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS;
     const currentScore = scoreRef.current;
     
     // Spawn Probabilities
-    if (rand > 0.90) type = 'ENEMY_ELITE';
-    else if (rand > 0.70) type = 'ENEMY_SHOOTER';
-    // Lowered threshold for Kamikaze to 500 points (was 2000)
+    if (rand > 0.94) type = 'ENEMY_MISSILE_DRONE';
+    else if (rand > 0.88) type = 'ENEMY_JAMMER';
+    else if (rand > 0.80) type = 'ENEMY_ELITE';
+    else if (rand > 0.65) type = 'ENEMY_SHOOTER';
     else if (rand > 0.50 && (hardMode || currentScore > 500)) type = 'ENEMY_KAMIKAZE';
 
-    const size = type === 'ENEMY_ELITE' ? 60 : (type === 'ENEMY_SHOOTER' ? 40 : (type === 'ENEMY_KAMIKAZE' ? 25 : 30));
+    const size = type === 'ENEMY_ELITE' ? 60 : (type === 'ENEMY_MISSILE_DRONE' || type === 'ENEMY_JAMMER' ? 50 : 30);
     const x = Math.random() * (canvasWidth - size);
     
     const { speedFactor } = getDifficultyScaling();
@@ -193,11 +220,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     let color = '#ff9900';
     let vx = (Math.random() - 0.5) * difficultyMultiplierRef.current * 0.5;
 
-    // HP Scaling Factor: +4 HP for basic enemies every 600 points
     const hpScaling = Math.floor(currentScore / 600) * 4;
 
     if (type === 'ENEMY_ELITE') {
-        hp = 15 + (hardMode ? 10 : 0) + (hpScaling * 2); // Elites scale even harder
+        hp = 15 + (hardMode ? 10 : 0) + (hpScaling * 2);
         speed *= 0.4; 
         color = '#cc0000'; 
     } else if (type === 'ENEMY_SHOOTER') {
@@ -205,12 +231,19 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         speed *= 0.7;
         color = '#aa00ff';
     } else if (type === 'ENEMY_KAMIKAZE') {
-        hp = 1; // Kamikazes are always fragile
+        hp = 1;
         speed *= 2.0; 
         vx = 0; 
         color = '#00ffcc';
+    } else if (type === 'ENEMY_MISSILE_DRONE') {
+        hp = 8 + hpScaling;
+        speed *= 1.2; // Fast approach
+        color = '#ff5500';
+    } else if (type === 'ENEMY_JAMMER') {
+        hp = 10 + hpScaling;
+        speed *= 0.5; // Slow
+        color = '#0088ff';
     } else {
-        // Basic Enemies
         const baseHp = hardMode ? 2 : 1;
         hp = baseHp + hpScaling;
         color = '#ff9900'; 
@@ -247,36 +280,33 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         tier = 2; // Elite Boss
     }
 
-    const scoreScaling = Math.floor(currentScore / 5000); // 0, 1, 2, 3...
+    const scoreScaling = Math.floor(currentScore / 5000); 
     
-    // Base HP based on Tier
     let baseHp = 3000;
     if (tier === 2) baseHp = 6000;
-    if (tier === 3) baseHp = 30000; // Massive HP for final boss
+    if (tier === 3) baseHp = 30000;
 
-    // Scale aggressive based on difficulty
     if (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) {
         baseHp *= 1.5;
     } else if (difficulty === Difficulty.EASY) {
         baseHp *= 0.6;
     }
 
-    // Growth per 5000 points (Only applies to non-final bosses significantly)
     const growthPerStage = 1500 * difficultyMultiplierRef.current;
     const totalHp = baseHp + (tier === 3 ? 0 : scoreScaling * growthPerStage);
 
     let width = 140;
     let height = 100;
-    let color = '#aa00ff'; // Tier 1 Purple
+    let color = '#aa00ff';
 
     if (tier === 2) {
         width = 180;
         height = 140;
-        color = '#ff0033'; // Tier 2 Red
+        color = '#ff0033';
     } else if (tier === 3) {
         width = 240;
         height = 180;
-        color = '#FFD700'; // Tier 3 Gold
+        color = '#FFD700';
     }
 
     enemiesRef.current.push({
@@ -314,7 +344,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         type = forcedType;
     } else {
         const rand = Math.random();
-        // 20% weapon drop
         if (rand < 0.20) type = 'WEAPON_UPGRADE';
         else type = 'HEAL';
     }
@@ -370,21 +399,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     const s = playerStats.current;
     const currentLevel = s.spreadLevel + s.damage;
     
-    // Cap at Level 10
     if (currentLevel >= MAX_WEAPON_LEVEL) {
         triggerSmartBomb(canvasWidth, canvasHeight);
         return;
     }
 
     const rand = Math.random();
-    
-    // Logic to distribute points between Damage (max 5) and Spread (max 5)
-    // Bias towards Damage early on, Spread later
-    
     let upgraded = false;
 
     if (rand < 0.5) {
-        // Try Upgrade Damage
         if (s.damage < s.maxDamage) {
             s.damage++;
             showFloatingText(p.x, p.y - 50, "火力强化!", "#ff0000");
@@ -395,7 +418,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
             upgraded = true;
         }
     } else {
-        // Try Upgrade Spread
         if (s.spreadLevel < s.maxSpread) {
             s.spreadLevel++;
             showFloatingText(p.x, p.y - 50, "多重火力 UP!", "#ffff00");
@@ -407,7 +429,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         }
     }
     
-    // Fire delay buff (separate from level, capped at 8)
     if (s.fireDelay > 8) {
         s.fireDelay -= 1;
         if (!upgraded) showFloatingText(p.x, p.y - 50, "射速 UP!", "#00ffff");
@@ -419,23 +440,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Victory Check is now MOVED to Boss Death logic for Non-Endless modes.
-    // We do NOT check score limit here anymore because 20k triggers a boss instead.
-
     // --- DELTA TIME CALCULATION ---
     const now = performance.now();
-    // If first frame, assume 16ms
     if (lastTimeRef.current === 0) lastTimeRef.current = now - 16;
     
     const deltaTime = now - lastTimeRef.current;
     lastTimeRef.current = now;
 
-    // Normalize to 60 FPS (16.67ms per frame)
     const timeScale = Math.min(Math.max(deltaTime / (1000 / 60), 0.1), 4.0);
     // -----------------------------
 
     if (shakeRef.current > 0) {
-        shakeRef.current -= 0.5 * timeScale; // Time based decay
+        shakeRef.current -= 0.5 * timeScale; 
         if (shakeRef.current < 0) shakeRef.current = 0;
     }
 
@@ -454,7 +470,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     ctx.fillStyle = '#ffffff';
     starsRef.current.forEach(star => {
         const { speedFactor } = getDifficultyScaling();
-        star.y += star.speed * timeScale * speedFactor; // Stars move faster too
+        star.y += star.speed * timeScale * speedFactor;
         if (star.y > canvas.height) {
             star.y = 0;
             star.x = Math.random() * canvas.width;
@@ -476,15 +492,25 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         p.invulnerableTimer = 0;
     }
 
+    // Jammed Timer Debuff Update
+    if (p.jammedTimer && p.jammedTimer > 0) {
+        p.jammedTimer -= 1 * timeScale;
+        if (p.jammedTimer <= 0) p.jammedTimer = 0;
+    }
+
     // Movement Clamping
     if (p.x < 0) p.x = 0;
     if (p.x > canvas.width - p.width) p.x = canvas.width - p.width;
     
-    // Engine Trail (Accumulator)
+    // Engine Trail
     if (p.hp > 0) {
         accumulatorsRef.current.engineTrail += timeScale;
         if (accumulatorsRef.current.engineTrail >= 3) {
             accumulatorsRef.current.engineTrail = 0;
+            // Trail is gray/glitchy if jammed
+            const isJammed = (p.jammedTimer || 0) > 0;
+            const trailColor = isJammed ? '#555555' : (stats.spreadLevel > 2 ? '#ff9900' : '#00ccff');
+
             particlesRef.current.push({
                 x: p.x + p.width / 2 + (Math.random() - 0.5) * 10,
                 y: p.y + p.height,
@@ -492,41 +518,47 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                 vy: 4 + Math.random() * 4,
                 life: 0.6,
                 decay: 0.1,
-                color: stats.spreadLevel > 2 ? '#ff9900' : '#00ccff', 
+                color: trailColor, 
                 size: Math.random() * 3 + 2,
                 type: 'PARTICLE', hp: 0, width: 0, height: 0
             });
         }
     }
 
-    // Auto Fire (Accumulator)
+    // Auto Fire
     if (p.hp > 0) {
         accumulatorsRef.current.playerFire += timeScale;
-        if (accumulatorsRef.current.playerFire >= stats.fireDelay) {
+        // Jammed Effect: Fire rate halved (Delay doubled)
+        const isJammed = (p.jammedTimer || 0) > 0;
+        const currentFireDelay = isJammed ? stats.fireDelay * 2 : stats.fireDelay;
+
+        if (accumulatorsRef.current.playerFire >= currentFireDelay) {
            accumulatorsRef.current.playerFire = 0;
            const centerX = p.x + p.width / 2;
            spawnPlayerBullet(centerX, p.y); 
            
-           if (stats.spreadLevel >= 1) { 
-               spawnPlayerBullet(centerX - 10, p.y + 10, -0.1); 
-               spawnPlayerBullet(centerX + 10, p.y + 10, 0.1); 
-           }
-           if (stats.spreadLevel >= 2) { 
-               spawnPlayerBullet(centerX - 20, p.y + 20, -0.2); 
-               spawnPlayerBullet(centerX + 20, p.y + 20, 0.2); 
-           }
-           if (stats.spreadLevel >= 3) {
-               spawnPlayerBullet(centerX, p.y, -0.05);
-               spawnPlayerBullet(centerX, p.y, 0.05);
-           }
-           if (stats.spreadLevel >= 4) {
-               spawnPlayerBullet(centerX - 30, p.y + 20, -0.4);
-               spawnPlayerBullet(centerX + 30, p.y + 20, 0.4);
+           if (!isJammed) { // Spread shots disabled if jammed? Or just weak? Let's keep them but weak
+               if (stats.spreadLevel >= 1) { 
+                   spawnPlayerBullet(centerX - 10, p.y + 10, -0.1); 
+                   spawnPlayerBullet(centerX + 10, p.y + 10, 0.1); 
+               }
+               if (stats.spreadLevel >= 2) { 
+                   spawnPlayerBullet(centerX - 20, p.y + 20, -0.2); 
+                   spawnPlayerBullet(centerX + 20, p.y + 20, 0.2); 
+               }
+               if (stats.spreadLevel >= 3) {
+                   spawnPlayerBullet(centerX, p.y, -0.05);
+                   spawnPlayerBullet(centerX, p.y, 0.05);
+               }
+               if (stats.spreadLevel >= 4) {
+                   spawnPlayerBullet(centerX - 30, p.y + 20, -0.4);
+                   spawnPlayerBullet(centerX + 30, p.y + 20, 0.4);
+               }
            }
         }
     }
 
-    // Supply Drop (Accumulator)
+    // Supply Drop
     if (p.hp > 0) {
       accumulatorsRef.current.supplyDrop += timeScale;
       if (accumulatorsRef.current.supplyDrop > SUPPLY_DROP_INTERVAL) {
@@ -539,19 +571,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
 
     // Boss Spawning
     if (!bossActiveRef.current) {
-        // Normal Boss Spawn
         if (scoreRef.current >= nextBossScoreRef.current) {
              spawnBoss(canvas.width);
         }
     }
 
-    // Enemy Spawning (Accumulator)
+    // Enemy Spawning
     const { densityFactor } = getDifficultyScaling();
-    // Dynamic Spawn Rate: Faster as density factor increases
     const spawnRate = Math.max(15, Math.floor(SPAWN_RATE_BASE / (difficultyMultiplierRef.current * densityFactor)));
 
     const bossEntity = enemiesRef.current.find(e => e.type === 'BOSS');
-    // Allow minions during Boss if boss is Tier 2 (Elite) AND NOT Tier 3 (Final)
     const shouldSpawnMinions = bossEntity && bossEntity.bossTier && bossEntity.bossTier >= 2 && bossEntity.bossTier < 3;
     
     if (shouldSpawnMinions) {
@@ -570,12 +599,50 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         }
     }
 
-    // Update Projectiles
+    // Update Projectiles (Bullets, Missiles, Waves)
     bulletsRef.current.forEach(b => { 
-        b.x += b.vx * timeScale; 
-        b.y += b.vy * timeScale; 
+        if (b.type === 'ENEMY_MISSILE') {
+             // Homing Logic
+             const targetX = p.x + p.width/2;
+             const targetY = p.y + p.height/2;
+             const dx = targetX - b.x;
+             const dy = targetY - b.y;
+             const dist = Math.sqrt(dx*dx + dy*dy);
+             if (dist > 0) {
+                 // Steering
+                 const speed = 4;
+                 const steerStrength = 0.08 * timeScale;
+                 b.vx += (dx/dist * speed - b.vx) * steerStrength;
+                 b.vy += (dy/dist * speed - b.vy) * steerStrength;
+                 // Cap speed
+                 const currentSpeed = Math.sqrt(b.vx*b.vx + b.vy*b.vy);
+                 b.vx = (b.vx / currentSpeed) * speed;
+                 b.vy = (b.vy / currentSpeed) * speed;
+                 
+                 // Rotate missile to face velocity
+                 b.rotation = Math.atan2(b.vy, b.vx) + Math.PI/2;
+             }
+             b.x += b.vx * timeScale;
+             b.y += b.vy * timeScale;
+
+        } else if (b.type === 'ENEMY_WAVE') {
+             // Expanding Wave
+             const expansion = 4 * timeScale;
+             b.x -= expansion/2;
+             b.y -= expansion/2;
+             b.width += expansion;
+             b.height += expansion;
+             
+             // Fade out based on life
+             b.life = (b.life || 0) - 0.03 * timeScale;
+             if ((b.life || 0) <= 0) b.dead = true;
+        } else {
+             // Standard Linear Bullet
+             b.x += b.vx * timeScale; 
+             b.y += b.vy * timeScale; 
+        }
     });
-    bulletsRef.current = bulletsRef.current.filter(b => b.y > -50 && b.y < canvas.height + 50);
+    bulletsRef.current = bulletsRef.current.filter(b => !b.dead && b.y > -50 && b.y < canvas.height + 50 && (b.type !== 'ENEMY_WAVE' || (b.life && b.life > 0)));
 
     // Update Items
     itemsRef.current.forEach(item => {
@@ -591,22 +658,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
             
             if (e.y < 80) e.y += 1 * timeScale; 
             else {
-                // Movement (Time based sine wave)
                 e.x += Math.sin(accumulatorsRef.current.bossPattern * 0.02) * 2 * difficultyMultiplierRef.current * timeScale;
                 e.x = Math.max(0, Math.min(canvas.width - e.width, e.x));
                 
-                // Attack AI
                 e.attackTimer = (e.attackTimer || 0) + 1 * timeScale;
                 
-                // Phase Switch every ~5 seconds (300 frames @ 60fps)
                 if (Math.floor(accumulatorsRef.current.bossPattern) % 300 < timeScale) {
                     e.bossPhase = (e.bossPhase || 0) + 1;
                     if (e.bossPhase > 2) e.bossPhase = 0;
                 }
 
-                // Fire Rate based on difficulty
                 let attackRate = (e.bossTier === 2 ? 30 : 50);
-                if (e.bossTier === 3) attackRate = 20; // Final Boss fires faster
+                if (e.bossTier === 3) attackRate = 20; 
 
                 if (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) attackRate *= 0.6; 
                 if (difficulty === Difficulty.EASY) attackRate *= 1.5; 
@@ -618,42 +681,36 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                     const phase = e.bossPhase || 0;
 
                     if (e.bossTier === 3) {
-                        // --- FINAL BOSS PATTERNS ---
-                        if (phase === 0) { // Stream + Spread
+                        if (phase === 0) { 
                              const pCx = p.x + p.width/2;
                              const pCy = p.y + p.height/2;
                              const dx = pCx - cx;
                              const dy = pCy - cy;
                              const dist = Math.sqrt(dx*dx + dy*dy);
-                             
-                             // Aimed stream
                              spawnEnemyBullet(cx, cy, (dx/dist)*12, (dy/dist)*12, '#ffaa00', 12);
-                             // Side spread
                              spawnEnemyBullet(cx - 40, cy, -2, 8, '#ffaa00', 10);
                              spawnEnemyBullet(cx + 40, cy, 2, 8, '#ffaa00', 10);
-                        } else if (phase === 1) { // Galaxy Spiral
+                        } else if (phase === 1) { 
                              const spiralDensity = 0.4;
                              const timeOffset = accumulatorsRef.current.bossPattern * 0.1;
                              for(let angle = 0; angle < Math.PI * 2; angle += spiralDensity) {
                                  const finalAngle = angle + timeOffset;
                                  spawnEnemyBullet(cx, cy, Math.cos(finalAngle) * 7, Math.sin(finalAngle) * 7, '#FFD700', 10);
                              }
-                        } else if (phase === 2) { // Chaos Rain
+                        } else if (phase === 2) { 
                              for(let i=0; i<3; i++) {
                                  const rx = Math.random() * canvas.width;
                                  spawnEnemyBullet(rx, -10, 0, 10 + Math.random()*5, '#ffffff', 8);
                              }
-                             // Direct shots too
                              spawnEnemyBullet(cx, cy, (Math.random()-0.5)*10, 8, '#ff0000', 10);
                         }
                     } else {
-                        // --- NORMAL / ELITE PATTERNS ---
-                        if (phase === 0) { // Ring
+                        if (phase === 0) { 
                             const density = (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) ? 0.15 : 0.25;
                             for(let angle = -0.7; angle <= 0.7; angle += density) {
                                 spawnEnemyBullet(cx, cy, Math.sin(angle) * 5, Math.cos(angle) * 5, e.color);
                             }
-                        } else if (phase === 1) { // Sniper
+                        } else if (phase === 1) { 
                             const dx = (p.x + p.width/2) - cx;
                             const dy = (p.y + p.height/2) - cy;
                             const dist = Math.sqrt(dx*dx + dy*dy);
@@ -662,7 +719,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                                 spawnEnemyBullet(cx - 20, cy, (dx/dist)*9, (dy/dist)*9, '#ffffff', 10);
                                 spawnEnemyBullet(cx + 20, cy, (dx/dist)*9, (dy/dist)*9, '#ffffff', 10);
                             }
-                        } else if (phase === 2) { // Random Spray
+                        } else if (phase === 2) { 
                             const count = (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) ? 8 : 4;
                             for(let i=0; i<count; i++) {
                                 const angle = (Math.random() - 0.5) * Math.PI; 
@@ -672,6 +729,27 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                     }
                 }
             }
+        } else if (e.type === 'ENEMY_MISSILE_DRONE') {
+            if (e.y < 80) e.y += e.vy * timeScale;
+            else {
+                // Hover oscillation
+                e.x += Math.sin(now * 0.002) * 2 * timeScale;
+                e.x = Math.max(0, Math.min(canvas.width - e.width, e.x));
+            }
+
+            e.shootTimer = (e.shootTimer || 0) + 1 * timeScale;
+            if (e.shootTimer > 200) { // Slower fire rate for missiles
+                e.shootTimer = 0;
+                spawnMissile(e.x + e.width/2, e.y + e.height);
+            }
+        } else if (e.type === 'ENEMY_JAMMER') {
+            e.y += e.vy * timeScale;
+            
+            e.shootTimer = (e.shootTimer || 0) + 1 * timeScale;
+            if (e.shootTimer > 150) {
+                e.shootTimer = 0;
+                spawnWave(e.x + e.width/2, e.y + e.height/2);
+            }
         } else if (e.type === 'ENEMY_KAMIKAZE') {
             e.y += e.vy * timeScale;
             const targetX = p.x + p.width/2 - e.width/2;
@@ -679,13 +757,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
             e.x += diff * 0.05 * timeScale; 
             e.rotation = (diff * 0.01);
             
-            // Trail
             if (Math.random() < 0.3 * timeScale) {
                  particlesRef.current.push({
                     x: e.x + e.width/2, y: e.y, vx: 0, vy: -1, life: 0.4, decay: 0.1, color: '#00ffcc', size: 2, type: 'PARTICLE', hp: 0, width: 0, height: 0
                  });
             }
-
         } else if (e.type === 'ENEMY_SHOOTER') {
             e.x += e.vx * timeScale; 
             e.y += e.vy * timeScale; 
@@ -713,9 +789,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                 spawnEnemyBullet(cx, cy, -1.5, 3.5, '#cc0000', 10);
                 spawnEnemyBullet(cx, cy, 1.5, 3.5, '#cc0000', 10);
             }
-
         } else {
-            // Basic
             e.x += e.vx * timeScale; 
             e.y += e.vy * timeScale; 
             e.rotation = (e.rotation || 0) + (e.rotationSpeed || 0) * timeScale;
@@ -734,7 +808,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         ) {
             item.dead = true;
             if (item.itemType === 'HEAL') {
-                // Heal 2 segments
                 p.hp = Math.min(p.maxHp || 5, p.hp + 2); 
                 showFloatingText(p.x, p.y, "+HP", "#00ff00");
                 particlesRef.current.push({ x: p.x, y: p.y, vx: 0, vy: -2, life: 1, decay: 0.02, color: '#00ff00', size: 20, isShockwave: true, type: 'PARTICLE', hp: 0, width: 0, height: 0 });
@@ -764,7 +837,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         ) {
           enemy.hp -= bullet.hp;
           bullet.dead = true;
-          // Hit particle
           particlesRef.current.push({
               x: bullet.x, y: bullet.y, vx: (Math.random()-0.5)*10, vy: (Math.random()-0.5)*10, 
               life: 0.3, decay: 0.1, color: '#fff', size: 2, type: 'PARTICLE', hp: 0, width: 0, height: 0
@@ -774,13 +846,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
             enemy.dead = true;
             
             if (enemy.type === 'BOSS') {
-                // Boss provides NO score
                 scoreRef.current += 0; 
                 createExplosion(enemy.x + enemy.width/2, enemy.y + enemy.height/2, enemy.color, 6);
                 shakeRef.current = 40;
                 bossActiveRef.current = false;
                 
-                // If it was the Final Boss (Tier 3), WIN GAME
                 if (enemy.bossTier === 3 && !wonRef.current) {
                     wonRef.current = true;
                     onGameWin(Math.floor(scoreRef.current));
@@ -794,11 +864,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                 nextBossScoreRef.current = Math.ceil((currentScore + 1) / nextStep) * nextStep;
                 
             } else {
-                let scoreGain = 50; // Reduced from 100
+                let scoreGain = 50; 
                 if (enemy.type === 'ENEMY_ELITE') scoreGain = 400;
                 if (enemy.type === 'ENEMY_KAMIKAZE') scoreGain = 200;
+                if (enemy.type === 'ENEMY_MISSILE_DRONE') scoreGain = 300;
+                if (enemy.type === 'ENEMY_JAMMER') scoreGain = 300;
                 
-                // Penalty: If Boss is active, score is reduced by 80%
                 if (bossActiveRef.current) {
                     scoreGain = Math.ceil(scoreGain * 0.2);
                 }
@@ -807,7 +878,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                 createExplosion(enemy.x + enemy.width/2, enemy.y + enemy.height/2, enemy.color);
                 shakeRef.current += 2;
                 
-                // 10% base drop chance
                 if (Math.random() < 0.10) { 
                     spawnItem(enemy.x + enemy.width/2, enemy.y + enemy.height/2); 
                 }
@@ -831,22 +901,44 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         pCy + hitboxH/2 > enemy.y
       ) {
         if (enemy.type !== 'BOSS') enemy.dead = true; 
-        p.hp -= 1; // Drop 1 segment
+        p.hp -= 1; 
         p.invulnerableTimer = 60; 
         shakeRef.current += 20;
         createExplosion(enemy.x + enemy.width/2, enemy.y + enemy.height/2, '#ffaa00', 1.5);
       }
     });
 
-    // 4. Enemy Bullets -> Player
+    // 4. Enemy Bullets / Missiles / Waves -> Player
     bulletsRef.current.forEach(bullet => {
-        if (bullet.type !== 'ENEMY_BULLET') return;
+        if (bullet.type === 'PLAYER_BULLET') return;
         
         const pCx = p.x + p.width/2;
         const pCy = p.y + p.height/2;
         const hitboxW = p.width * 0.4; 
         const hitboxH = p.height * 0.4;
 
+        // WAVE COLLISION (Circle vs Rect approximation)
+        if (bullet.type === 'ENEMY_WAVE') {
+             if (bullet.dead) return;
+             const r = bullet.width / 2;
+             const bCx = bullet.x + r;
+             const bCy = bullet.y + r;
+             // Distance to player center
+             const dx = pCx - bCx;
+             const dy = pCy - bCy;
+             const dist = Math.sqrt(dx*dx + dy*dy);
+             
+             // If player touches the wave ring
+             if (dist < r + hitboxW && dist > r - 20) {
+                 if ((p.jammedTimer || 0) <= 0) {
+                     showFloatingText(p.x, p.y - 40, "警告: 系统干扰!", "#ff00ff");
+                 }
+                 p.jammedTimer = 600; // 10 seconds (at 60fps)
+             }
+             return; // Wave doesn't die on contact
+        }
+
+        // Standard Bullet/Missile Collision
         if (
             !bullet.dead && p.hp > 0 &&
             p.invulnerableTimer === 0 &&
@@ -854,7 +946,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
             bullet.y < pCy + hitboxH/2 && bullet.height + bullet.y > pCy - hitboxH/2
         ) {
             bullet.dead = true;
-            p.hp -= 1; // Drop 1 segment
+            p.hp -= 1; 
             p.invulnerableTimer = 60;
             shakeRef.current += 10;
             createExplosion(pCx, pCy, '#ff0000', 0.5);
@@ -880,7 +972,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     floatingTextsRef.current = floatingTextsRef.current.filter(t => t.life > 0);
 
     // --- DRAWING ---
-    // Drawing remains frame-based, but physics are now decoupled
     particlesRef.current.forEach(p => {
       ctx.globalAlpha = Math.max(0, p.life || 0);
       ctx.fillStyle = p.color;
@@ -901,7 +992,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     itemsRef.current.forEach(item => {
         ctx.save();
         ctx.translate(item.x + item.width/2, item.y + item.height/2);
-        // Visual spin effect relies on frameCount for ease, or use accumulated rotation
         const scale = 1 + Math.sin(accumulatorsRef.current.bossPattern * 0.1) * 0.2;
         ctx.scale(scale, scale);
         
@@ -942,7 +1032,27 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
       ctx.shadowBlur = 8;
       ctx.shadowColor = b.color;
       ctx.fillStyle = b.color;
-      if (b.type === 'ENEMY_BULLET') {
+      
+      if (b.type === 'ENEMY_MISSILE') {
+          ctx.save();
+          ctx.translate(b.x, b.y); // Pivot at position
+          ctx.rotate(b.rotation || 0);
+          ctx.beginPath();
+          ctx.moveTo(0, -5);
+          ctx.lineTo(5, 5);
+          ctx.lineTo(0, 3);
+          ctx.lineTo(-5, 5);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
+      } else if (b.type === 'ENEMY_WAVE') {
+          ctx.shadowBlur = 0;
+          ctx.strokeStyle = `rgba(0, 204, 255, ${Math.min(1, b.life || 1)})`;
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(b.x + b.width/2, b.y + b.height/2, b.width/2, 0, Math.PI * 2);
+          ctx.stroke();
+      } else if (b.type === 'ENEMY_BULLET') {
           ctx.beginPath();
           ctx.arc(b.x + b.width/2, b.y + b.height/2, b.width/2, 0, Math.PI*2);
           ctx.fill();
@@ -1017,6 +1127,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
           ctx.lineTo(-e.width/2, 0);
           ctx.closePath();
           ctx.fill();
+      } else if (e.type === 'ENEMY_MISSILE_DRONE') {
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = e.color;
+          ctx.fillStyle = e.color;
+          // Drone shape
+          ctx.fillRect(-15, -10, 30, 20);
+          ctx.fillStyle = '#333';
+          ctx.fillRect(-5, 0, 10, 15); // launcher
+      } else if (e.type === 'ENEMY_JAMMER') {
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = e.color;
+          ctx.fillStyle = e.color;
+          // Dish shape
+          ctx.beginPath();
+          ctx.arc(0, 0, 15, 0, Math.PI, true);
+          ctx.fill();
+          ctx.fillRect(-2, 0, 4, 15);
       } else if (e.type === 'ENEMY_SHOOTER') {
           ctx.shadowBlur = 10;
           ctx.shadowColor = e.color;
@@ -1047,10 +1174,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     // Draw Player
     if (p.hp > 0) {
       if (!p.invulnerableTimer || Math.floor(accumulatorsRef.current.bossPattern / 4) % 2 === 0) {
-          ctx.shadowBlur = 20;
-          ctx.shadowColor = stats.spreadLevel > 0 ? '#ffff00' : '#00ff99';
-          ctx.fillStyle = stats.damage > 2 ? '#ffccaa' : (stats.spreadLevel > 0 ? '#ffffaa' : '#00ff99'); 
+          const isJammed = (p.jammedTimer || 0) > 0;
           
+          ctx.shadowBlur = 20;
+          ctx.shadowColor = isJammed ? '#555' : (stats.spreadLevel > 0 ? '#ffff00' : '#00ff99');
+          ctx.fillStyle = isJammed ? '#888' : (stats.damage > 2 ? '#ffccaa' : (stats.spreadLevel > 0 ? '#ffffaa' : '#00ff99')); 
+          
+          // Glitch effect if jammed
+          if (isJammed && Math.random() < 0.3) {
+              ctx.translate((Math.random()-0.5)*5, 0);
+          }
+
           ctx.save();
           ctx.translate(p.x + p.width/2, p.y + p.height/2);
 
@@ -1065,7 +1199,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
           ctx.fill();
           
           if (stats.spreadLevel > 0) {
-              ctx.fillStyle = '#ff9900';
+              ctx.fillStyle = isJammed ? '#555' : '#ff9900';
               const wingSize = 10 + (stats.spreadLevel * 2);
               ctx.fillRect(-p.width, 0, 10, wingSize);
               ctx.fillRect(p.width - 10, 0, 10, wingSize);
@@ -1073,6 +1207,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
           
           ctx.restore();
           ctx.shadowBlur = 0;
+          
+          if (isJammed) {
+              ctx.fillStyle = "#ff0000";
+              ctx.font = "bold 12px monospace";
+              ctx.fillText("! JAMMED !", p.x - 10, p.y - 10);
+          }
       }
     }
 
