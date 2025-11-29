@@ -5,6 +5,7 @@ import { Difficulty, Entity, ItemType } from '../types';
 interface GameCanvasProps {
   difficulty: Difficulty;
   onGameOver: (score: number) => void;
+  onGameWin: (score: number) => void;
 }
 
 // Game Constants
@@ -17,6 +18,7 @@ const SUPPLY_DROP_INTERVAL = 1200;
 
 // Boss Milestones
 const BOSS_START_SCORE = 5000;
+const VICTORY_SCORE = 20000;
 
 interface Star {
   x: number;
@@ -26,11 +28,12 @@ interface Star {
   brightness: number;
 }
 
-const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
+const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameWin }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef<number>(0);
   const scoreRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0); // For Delta Time
+  const wonRef = useRef<boolean>(false);
   
   // Logic Accumulators (replacing frameCount modulo checks)
   const accumulatorsRef = useRef({
@@ -52,9 +55,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
   const floatingTextsRef = useRef<{x: number, y: number, text: string, life: number, color: string}[]>([]);
 
   // Game State Refs
+  // HP is now "Segments". Max 5.
   const playerRef = useRef<Entity>({ 
     x: 0, y: 0, width: 40, height: 48, 
-    hp: 100, maxHp: 100, vx: 0, vy: 0, 
+    hp: 5, maxHp: 5, vx: 0, vy: 0, 
     color: '#00ff99', type: 'PLAYER',
     invulnerableTimer: 0
   });
@@ -82,11 +86,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
     switch (difficulty) {
       case Difficulty.EASY: difficultyMultiplierRef.current = 0.7; break; 
       case Difficulty.NORMAL: difficultyMultiplierRef.current = 1.0; break; 
-      case Difficulty.HARDCORE: difficultyMultiplierRef.current = 1.8; break; 
+      case Difficulty.HARDCORE: difficultyMultiplierRef.current = 1.8; break;
+      case Difficulty.ENDLESS: difficultyMultiplierRef.current = 1.5; break; 
     }
     nextBossScoreRef.current = BOSS_START_SCORE;
     bossActiveRef.current = false;
     accumulatorsRef.current.supplyDrop = 0;
+    wonRef.current = false;
   }, [difficulty]);
 
   // Init Stars
@@ -144,7 +150,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
     const rand = Math.random();
     let type: 'ENEMY_BASIC' | 'ENEMY_SHOOTER' | 'ENEMY_ELITE' | 'ENEMY_KAMIKAZE' = 'ENEMY_BASIC';
     
-    const hardMode = difficulty === Difficulty.HARDCORE;
+    const hardMode = difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS;
     const currentScore = scoreRef.current;
     
     // Spawn Probabilities
@@ -162,15 +168,16 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
     let color = '#ff9900';
     let vx = (Math.random() - 0.5) * difficultyMultiplierRef.current * 0.5;
 
-    // HP Scaling Factor: +1 HP for basic enemies every 2000 points
-    const hpScaling = Math.floor(currentScore / 2000);
+    // HP Scaling Factor: +4 HP for basic enemies every 600 points
+    // This makes them significantly tougher over time.
+    const hpScaling = Math.floor(currentScore / 600) * 4;
 
     if (type === 'ENEMY_ELITE') {
-        hp = 15 + (hardMode ? 10 : 0) + (hpScaling * 2); // Elites scale faster
+        hp = 15 + (hardMode ? 10 : 0) + (hpScaling * 2); // Elites scale even harder
         speed *= 0.4; 
         color = '#cc0000'; 
     } else if (type === 'ENEMY_SHOOTER') {
-        hp = 3 + Math.floor(currentScore / 3000);
+        hp = 3 + hpScaling;
         speed *= 0.7;
         color = '#aa00ff';
     } else if (type === 'ENEMY_KAMIKAZE') {
@@ -181,8 +188,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
     } else {
         // Basic Enemies
         const baseHp = hardMode ? 2 : 1;
-        // Cap max HP to prevent them becoming bullet sponges
-        hp = Math.min(baseHp + hpScaling, 10);
+        hp = baseHp + hpScaling;
         color = '#ff9900'; 
     }
     
@@ -337,6 +343,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
   const update = useCallback((canvas: HTMLCanvasElement) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
+
+    // Check Victory
+    if (scoreRef.current >= VICTORY_SCORE && difficulty !== Difficulty.ENDLESS && !wonRef.current) {
+        wonRef.current = true;
+        onGameWin(Math.floor(scoreRef.current));
+        return;
+    }
 
     // --- DELTA TIME CALCULATION ---
     const now = performance.now();
@@ -518,7 +531,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
 
                 // Fire Rate based on difficulty
                 let attackRate = (e.bossTier === 2 ? 30 : 50);
-                if (difficulty === Difficulty.HARDCORE) attackRate *= 0.6; 
+                if (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) attackRate *= 0.6; 
                 if (difficulty === Difficulty.EASY) attackRate *= 1.5; 
 
                 if (e.attackTimer > attackRate) {
@@ -528,7 +541,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
                     const phase = e.bossPhase || 0;
 
                     if (phase === 0) { // Ring
-                        const density = difficulty === Difficulty.HARDCORE ? 0.15 : 0.25;
+                        const density = (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) ? 0.15 : 0.25;
                         for(let angle = -0.7; angle <= 0.7; angle += density) {
                             spawnEnemyBullet(cx, cy, Math.sin(angle) * 5, Math.cos(angle) * 5, e.color);
                         }
@@ -542,7 +555,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
                              spawnEnemyBullet(cx + 20, cy, (dx/dist)*9, (dy/dist)*9, '#ffffff', 10);
                          }
                     } else if (phase === 2) { // Random Spray
-                        const count = difficulty === Difficulty.HARDCORE ? 8 : 4;
+                        const count = (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) ? 8 : 4;
                         for(let i=0; i<count; i++) {
                             const angle = (Math.random() - 0.5) * Math.PI; 
                             spawnEnemyBullet(cx, cy, Math.sin(angle) * 6, Math.cos(angle) * 6, '#ff9900', 8);
@@ -612,7 +625,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
         ) {
             item.dead = true;
             if (item.itemType === 'HEAL') {
-                p.hp = Math.min(p.maxHp || 100, p.hp + 50); 
+                // Heal 2 segments
+                p.hp = Math.min(p.maxHp || 5, p.hp + 2); 
                 showFloatingText(p.x, p.y, "+HP", "#00ff00");
                 particlesRef.current.push({ x: p.x, y: p.y, vx: 0, vy: -2, life: 1, decay: 0.02, color: '#00ff00', size: 20, isShockwave: true, type: 'PARTICLE', hp: 0, width: 0, height: 0 });
             } else if (item.itemType === 'WEAPON_UPGRADE') {
@@ -651,7 +665,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
             enemy.dead = true;
             
             if (enemy.type === 'BOSS') {
-                scoreRef.current += 3000;
+                // Boss provides NO score
+                scoreRef.current += 0; 
                 createExplosion(enemy.x + enemy.width/2, enemy.y + enemy.height/2, enemy.color, 4);
                 shakeRef.current = 25;
                 bossActiveRef.current = false;
@@ -662,7 +677,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
                 nextBossScoreRef.current = Math.ceil((currentScore + 1) / nextStep) * nextStep;
                 
             } else {
-                let scoreGain = 100;
+                let scoreGain = 50; // Reduced from 100
                 if (enemy.type === 'ENEMY_ELITE') scoreGain = 400;
                 if (enemy.type === 'ENEMY_KAMIKAZE') scoreGain = 200;
                 
@@ -694,7 +709,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
         pCy + hitboxH/2 > enemy.y
       ) {
         if (enemy.type !== 'BOSS') enemy.dead = true; 
-        p.hp -= 20;
+        p.hp -= 1; // Drop 1 segment
         p.invulnerableTimer = 60; 
         shakeRef.current += 20;
         createExplosion(enemy.x + enemy.width/2, enemy.y + enemy.height/2, '#ffaa00', 1.5);
@@ -717,7 +732,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
             bullet.y < pCy + hitboxH/2 && bullet.height + bullet.y > pCy - hitboxH/2
         ) {
             bullet.dead = true;
-            p.hp -= 15;
+            p.hp -= 1; // Drop 1 segment
             p.invulnerableTimer = 60;
             shakeRef.current += 10;
             createExplosion(pCx, pCy, '#ff0000', 0.5);
@@ -970,11 +985,25 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
         ctx.textAlign = 'left';
     }
 
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = '#fff';
-    ctx.strokeRect(20, 60, 200, 10);
-    ctx.fillStyle = p.hp > 30 ? '#00ff00' : '#ff0000';
-    ctx.fillRect(22, 62, Math.max(0, (p.hp/p.maxHp!) * 196), 6);
+    // Health UI (Discrete Segments)
+    const segmentWidth = 30;
+    const segmentGap = 5;
+    const startX = 20;
+    const startY = 60;
+    const maxHp = p.maxHp || 5;
+
+    for (let i = 0; i < maxHp; i++) {
+        const x = startX + i * (segmentWidth + segmentGap);
+        
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, startY, segmentWidth, 10);
+
+        if (i < p.hp) {
+            ctx.fillStyle = p.hp <= 1 ? '#ff0000' : '#00ff00';
+            ctx.fillRect(x + 2, startY + 2, segmentWidth - 4, 6);
+        }
+    }
 
     if (p.hp <= 0 && p.hp > -100) {
       setTimeout(() => onGameOver(Math.floor(scoreRef.current)), 1000); 
@@ -984,7 +1013,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
     }
 
     requestRef.current = requestAnimationFrame(() => update(canvas));
-  }, [difficulty, onGameOver]);
+  }, [difficulty, onGameOver, onGameWin]);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     playerStats.current.dragging = true;

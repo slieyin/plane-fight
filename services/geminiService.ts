@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { Difficulty, MissionBriefing } from "../types";
 
@@ -26,6 +27,10 @@ const OFFLINE_BRIEFINGS: Record<Difficulty, MissionBriefing[]> = {
   [Difficulty.HARDCORE]: [
     { title: "绝境行动：诸神黄昏", message: "这几乎是一次自杀式任务。敌军主力已包围我方基地。不惜一切代价生存下去，飞行员！" },
     { title: "最终防线：孤狼", message: "指挥部已撤离，你是最后一道防线。面对无尽的敌军潮水，让它们见识一下什么叫绝望。" }
+  ],
+  [Difficulty.ENDLESS]: [
+    { title: "模拟战：无限", message: "启动极限生存模拟程序。没有撤退，没有支援。看看你能在无尽的虚空中坚持多久。" },
+    { title: "黑洞协议", message: "警告：你正在进入未知空域。敌军数量无限。任务目标只有一个：生存并打破最高纪录。" }
   ]
 };
 
@@ -56,6 +61,7 @@ export const generateMissionBriefing = async (difficulty: Difficulty): Promise<M
       - 如果难度是 EASY (简单)：语气要有鼓励性。
       - 如果难度是 NORMAL (普通)：语气严肃专业。
       - 如果难度是 HARDCORE (困难)：语气冷酷，警告飞行员这几乎是自杀式任务。
+      - 如果难度是 ENDLESS (无尽)：强调这是极限挑战，没有尽头。
       
       请返回 JSON 格式，包含以下字段：
       - 'title': 简短帅气的任务代号（例如：天穹行动、破晓计划）。

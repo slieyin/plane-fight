@@ -4,13 +4,15 @@ export enum GameState {
   LOADING_BRIEFING = 'LOADING_BRIEFING',
   BRIEFING = 'BRIEFING',
   PLAYING = 'PLAYING',
-  GAME_OVER = 'GAME_OVER'
+  GAME_OVER = 'GAME_OVER',
+  GAME_WON = 'GAME_WON'
 }
 
 export enum Difficulty {
   EASY = 'EASY',
   NORMAL = 'NORMAL',
-  HARDCORE = 'HARDCORE'
+  HARDCORE = 'HARDCORE',
+  ENDLESS = 'ENDLESS'
 }
 
 export interface Point {

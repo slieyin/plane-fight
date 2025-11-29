@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { GameState, Difficulty, MissionBriefing } from './types';
 import { generateMissionBriefing } from './services/geminiService';
@@ -27,6 +28,11 @@ const App: React.FC = () => {
   const handleGameOver = (finalScore: number) => {
     setScore(finalScore);
     setGameState(GameState.GAME_OVER);
+  };
+
+  const handleGameWin = (finalScore: number) => {
+    setScore(finalScore);
+    setGameState(GameState.GAME_WON);
   };
 
   const goToMenu = () => {
@@ -72,6 +78,15 @@ const App: React.FC = () => {
             >
               困难
             </button>
+            
+            <div className="h-4"></div> {/* Spacer */}
+            
+            <button 
+              onClick={() => startGameSequence(Difficulty.ENDLESS)}
+              className="w-full py-4 bg-gray-900 border-2 border-purple-500 text-purple-400 font-bold text-xl hover:bg-purple-900/20 active:scale-95 transition-all shadow-[0_0_15px_rgba(168,85,247,0.3)] uppercase rounded-lg animate-pulse"
+            >
+              无尽模式
+            </button>
           </div>
         </div>
       )}
@@ -91,8 +106,13 @@ const App: React.FC = () => {
           <div className="w-full bg-gray-900/90 border border-cyan-500/50 p-6 rounded-xl shadow-[0_0_30px_rgba(6,182,212,0.15)] backdrop-blur-sm">
             <div className="flex justify-between items-center mb-6 border-b border-cyan-500/30 pb-4">
               <h2 className="text-2xl font-bold text-cyan-400 uppercase">{briefing.title}</h2>
-              <span className="text-xs text-yellow-500 border border-yellow-500 px-2 py-1 rounded">
-                {difficulty === Difficulty.EASY ? '简单' : difficulty === Difficulty.NORMAL ? '普通' : '困难'}
+              <span className={`text-xs px-2 py-1 rounded border ${
+                difficulty === Difficulty.ENDLESS ? 'text-purple-500 border-purple-500' : 
+                difficulty === Difficulty.HARDCORE ? 'text-red-500 border-red-500' : 'text-yellow-500 border-yellow-500'
+              }`}>
+                {difficulty === Difficulty.EASY ? '简单' : 
+                 difficulty === Difficulty.NORMAL ? '普通' : 
+                 difficulty === Difficulty.HARDCORE ? '困难' : '无尽'}
               </span>
             </div>
             
@@ -120,7 +140,7 @@ const App: React.FC = () => {
 
       {/* --- GAME LOOP --- */}
       {gameState === GameState.PLAYING && (
-        <GameCanvas difficulty={difficulty} onGameOver={handleGameOver} />
+        <GameCanvas difficulty={difficulty} onGameOver={handleGameOver} onGameWin={handleGameWin} />
       )}
 
       {/* --- GAME OVER --- */}
@@ -146,6 +166,29 @@ const App: React.FC = () => {
               className="w-full py-3 border border-white/20 text-gray-300 font-bold text-lg hover:bg-white/10 active:scale-95 transition-all rounded"
             >
               返回主菜单
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* --- GAME WON --- */}
+      {gameState === GameState.GAME_WON && (
+        <div className="relative z-10 flex flex-col items-center justify-center h-full p-6">
+          <div className="animate-bounce mb-8 text-7xl">🏆</div>
+          <h2 className="text-6xl font-black text-yellow-400 mb-2 drop-shadow-[0_0_15px_rgba(250,204,21,0.8)] tracking-tighter text-center">
+            任务完成
+          </h2>
+          <div className="text-center mb-12">
+            <p className="text-green-300 text-sm uppercase tracking-widest mb-2">空域已肃清</p>
+            <p className="text-5xl font-mono text-white">{score}</p>
+          </div>
+
+          <div className="flex flex-col space-y-4 w-full max-w-xs">
+            <button 
+              onClick={goToMenu}
+              className="w-full py-3 bg-yellow-400 text-black font-bold text-lg hover:bg-yellow-300 active:scale-95 transition-all rounded shadow-lg"
+            >
+              返回基地
             </button>
           </div>
         </div>
