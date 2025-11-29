@@ -99,7 +99,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                  color = '#aa00ff';
                  width = 35; height = 35;
              } else if (type === 'ENEMY_KAMIKAZE') {
-                 hp = 6 + hpScaling;
+                 hp = 5 + hpScaling;
                  speed *= 2.0; 
                  vx = 0; 
                  color = '#00ffcc';
