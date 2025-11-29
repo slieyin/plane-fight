@@ -31,7 +31,7 @@ export interface Entity {
   color: string;
   hp: number;
   maxHp?: number;
-  type: 'PLAYER' | 'ENEMY_BASIC' | 'ENEMY_SHOOTER' | 'ENEMY_ELITE' | 'PLAYER_BULLET' | 'ENEMY_BULLET' | 'PARTICLE' | 'BOSS' | 'ITEM';
+  type: 'PLAYER' | 'ENEMY_BASIC' | 'ENEMY_SHOOTER' | 'ENEMY_ELITE' | 'ENEMY_KAMIKAZE' | 'PLAYER_BULLET' | 'ENEMY_BULLET' | 'PARTICLE' | 'BOSS' | 'ITEM';
   
   // Specific properties
   rotation?: number;
@@ -42,6 +42,9 @@ export interface Entity {
   size?: number; // For particles/stars
   isShockwave?: boolean; // For particles
   
+  // Player specific
+  invulnerableTimer?: number;
+
   // Item/Boss/Enemy specific
   itemType?: ItemType;
   attackTimer?: number;
