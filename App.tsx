@@ -1,14 +1,21 @@
-
 import React, { useState } from 'react';
 import { GameState, Difficulty, MissionBriefing } from './types';
 import { generateMissionBriefing } from './services/geminiService';
-import GameCanvas from './components/GameCanvas';
+import GameCanvas, { GameConfig } from './components/GameCanvas';
 
 const App: React.FC = () => {
   const [gameState, setGameState] = useState<GameState>(GameState.MENU);
   const [difficulty, setDifficulty] = useState<Difficulty>(Difficulty.NORMAL);
   const [briefing, setBriefing] = useState<MissionBriefing | null>(null);
   const [score, setScore] = useState(0);
+
+  // Settings State
+  const [showSettings, setShowSettings] = useState(false);
+  const [config, setConfig] = useState<GameConfig>({
+    enemyHpScaling: 4,
+    playerMaxHp: 5,
+    baseEnemyHp: 1
+  });
 
   const startGameSequence = async (selectedDifficulty: Difficulty) => {
     setDifficulty(selectedDifficulty);
@@ -39,6 +46,11 @@ const App: React.FC = () => {
     setGameState(GameState.MENU);
   };
 
+  // Setting Helper
+  const updateConfig = (key: keyof GameConfig, value: number) => {
+    setConfig(prev => ({ ...prev, [key]: value }));
+  };
+
   return (
     <div className="relative w-full h-dvh bg-black overflow-hidden font-mono select-none">
       <div className="scanline" />
@@ -57,37 +69,98 @@ const App: React.FC = () => {
             霓虹<br/>空战
           </h1>
           
-          <div className="flex flex-col space-y-4 w-full max-w-xs">
-            <p className="text-cyan-200 text-center text-sm mb-2 opacity-70">选择任务难度</p>
-            
-            <button 
-              onClick={() => startGameSequence(Difficulty.EASY)}
-              className="w-full py-4 bg-gray-900 border-2 border-green-500 text-green-400 font-bold text-xl hover:bg-green-900/20 active:scale-95 transition-all shadow-[0_0_15px_rgba(34,197,94,0.3)] uppercase rounded-lg"
-            >
-              简单
-            </button>
-            <button 
-              onClick={() => startGameSequence(Difficulty.NORMAL)}
-              className="w-full py-4 bg-gray-900 border-2 border-cyan-500 text-cyan-400 font-bold text-xl hover:bg-cyan-900/20 active:scale-95 transition-all shadow-[0_0_15px_rgba(6,182,212,0.3)] uppercase rounded-lg"
-            >
-              普通
-            </button>
-            <button 
-              onClick={() => startGameSequence(Difficulty.HARDCORE)}
-              className="w-full py-4 bg-gray-900 border-2 border-red-500 text-red-500 font-bold text-xl hover:bg-red-900/20 active:scale-95 transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)] uppercase rounded-lg"
-            >
-              困难
-            </button>
-            
-            <div className="h-4"></div> {/* Spacer */}
-            
-            <button 
-              onClick={() => startGameSequence(Difficulty.ENDLESS)}
-              className="w-full py-4 bg-gray-900 border-2 border-purple-500 text-purple-400 font-bold text-xl hover:bg-purple-900/20 active:scale-95 transition-all shadow-[0_0_15px_rgba(168,85,247,0.3)] uppercase rounded-lg animate-pulse"
-            >
-              无尽模式
-            </button>
-          </div>
+          {!showSettings ? (
+            <div className="flex flex-col space-y-4 w-full max-w-xs">
+              <p className="text-cyan-200 text-center text-sm mb-2 opacity-70">选择任务难度</p>
+              
+              <button 
+                onClick={() => startGameSequence(Difficulty.EASY)}
+                className="w-full py-4 bg-gray-900 border-2 border-green-500 text-green-400 font-bold text-xl hover:bg-green-900/20 active:scale-95 transition-all shadow-[0_0_15px_rgba(34,197,94,0.3)] uppercase rounded-lg"
+              >
+                简单
+              </button>
+              <button 
+                onClick={() => startGameSequence(Difficulty.NORMAL)}
+                className="w-full py-4 bg-gray-900 border-2 border-cyan-500 text-cyan-400 font-bold text-xl hover:bg-cyan-900/20 active:scale-95 transition-all shadow-[0_0_15px_rgba(6,182,212,0.3)] uppercase rounded-lg"
+              >
+                普通
+              </button>
+              <button 
+                onClick={() => startGameSequence(Difficulty.HARDCORE)}
+                className="w-full py-4 bg-gray-900 border-2 border-red-500 text-red-500 font-bold text-xl hover:bg-red-900/20 active:scale-95 transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)] uppercase rounded-lg"
+              >
+                困难
+              </button>
+              
+              <div className="h-4"></div> {/* Spacer */}
+              
+              <button 
+                onClick={() => startGameSequence(Difficulty.ENDLESS)}
+                className="w-full py-4 bg-gray-900 border-2 border-purple-500 text-purple-400 font-bold text-xl hover:bg-purple-900/20 active:scale-95 transition-all shadow-[0_0_15px_rgba(168,85,247,0.3)] uppercase rounded-lg animate-pulse"
+              >
+                无尽模式
+              </button>
+
+              <button
+                onClick={() => setShowSettings(true)}
+                className="mt-4 text-xs text-gray-500 hover:text-white underline"
+              >
+                ⚙️ 战术参数设置
+              </button>
+            </div>
+          ) : (
+            <div className="w-full max-w-xs bg-gray-900/90 border border-gray-600 p-6 rounded-lg shadow-xl backdrop-blur-md">
+              <h3 className="text-xl font-bold text-white mb-6 border-b border-gray-700 pb-2">战术参数配置</h3>
+              
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-cyan-400 text-xs uppercase mb-2">敌人成长系数 (HP/600分)</label>
+                  <div className="flex items-center space-x-2">
+                    <input 
+                      type="range" min="1" max="10" step="1" 
+                      value={config.enemyHpScaling}
+                      onChange={(e) => updateConfig('enemyHpScaling', parseInt(e.target.value))}
+                      className="flex-grow h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <span className="text-white font-mono w-6 text-right">{config.enemyHpScaling}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-green-400 text-xs uppercase mb-2">玩家最大装甲</label>
+                  <div className="flex items-center space-x-2">
+                    <input 
+                      type="range" min="1" max="10" step="1" 
+                      value={config.playerMaxHp}
+                      onChange={(e) => updateConfig('playerMaxHp', parseInt(e.target.value))}
+                      className="flex-grow h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <span className="text-white font-mono w-6 text-right">{config.playerMaxHp}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-red-400 text-xs uppercase mb-2">敌人基础 HP</label>
+                  <div className="flex items-center space-x-2">
+                    <input 
+                      type="range" min="1" max="10" step="1" 
+                      value={config.baseEnemyHp}
+                      onChange={(e) => updateConfig('baseEnemyHp', parseInt(e.target.value))}
+                      className="flex-grow h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                    />
+                    <span className="text-white font-mono w-6 text-right">{config.baseEnemyHp}</span>
+                  </div>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setShowSettings(false)}
+                className="w-full mt-8 py-2 bg-gray-700 text-white font-bold rounded hover:bg-gray-600 transition-colors"
+              >
+                保存并返回
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -140,7 +213,12 @@ const App: React.FC = () => {
 
       {/* --- GAME LOOP --- */}
       {gameState === GameState.PLAYING && (
-        <GameCanvas difficulty={difficulty} onGameOver={handleGameOver} onGameWin={handleGameWin} />
+        <GameCanvas 
+          difficulty={difficulty} 
+          onGameOver={handleGameOver} 
+          onGameWin={handleGameWin} 
+          config={config} 
+        />
       )}
 
       {/* --- GAME OVER --- */}
