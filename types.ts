@@ -1,3 +1,4 @@
+
 export enum GameState {
   MENU = 'MENU',
   LOADING_BRIEFING = 'LOADING_BRIEFING',
@@ -20,7 +21,7 @@ export interface Point {
 export type ItemType = 'HEAL' | 'WEAPON_UPGRADE' | 'BOSS_REWARD';
 
 export interface Entity {
-  id?: string; // Optional for some temp particles
+  id?: string;
   x: number;
   y: number;
   width: number;
@@ -30,7 +31,7 @@ export interface Entity {
   color: string;
   hp: number;
   maxHp?: number;
-  type: 'PLAYER' | 'ENEMY_BASIC' | 'ENEMY_SHOOTER' | 'PLAYER_BULLET' | 'ENEMY_BULLET' | 'PARTICLE' | 'BOSS' | 'ITEM';
+  type: 'PLAYER' | 'ENEMY_BASIC' | 'ENEMY_SHOOTER' | 'ENEMY_ELITE' | 'PLAYER_BULLET' | 'ENEMY_BULLET' | 'PARTICLE' | 'BOSS' | 'ITEM';
   
   // Specific properties
   rotation?: number;
@@ -41,10 +42,12 @@ export interface Entity {
   size?: number; // For particles/stars
   isShockwave?: boolean; // For particles
   
-  // Item/Boss specific
+  // Item/Boss/Enemy specific
   itemType?: ItemType;
   attackTimer?: number;
+  shootTimer?: number; // For shooter enemies
   bossTier?: number; // 1 for normal, 2 for elite/infinite
+  bossPhase?: number; // 0, 1, 2 for different attack patterns
 }
 
 export interface MissionBriefing {
