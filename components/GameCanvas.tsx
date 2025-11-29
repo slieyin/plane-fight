@@ -19,6 +19,7 @@ const SUPPLY_DROP_INTERVAL = 1200;
 // Boss Milestones
 const BOSS_START_SCORE = 5000;
 const VICTORY_SCORE = 20000;
+const MAX_WEAPON_LEVEL = 10;
 
 interface Star {
   x: number;
@@ -68,7 +69,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     spreadLevel: 0, 
     fireDelay: 15, 
     damage: 1,
-    maxSpread: 4,
+    maxSpread: 5, // Increased to allow sum to reach 10
     maxDamage: 5
   });
 
@@ -112,6 +113,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
 
   const showFloatingText = (x: number, y: number, text: string, color: string = '#fff') => {
     floatingTextsRef.current.push({ x, y, text, life: 60, color });
+  };
+
+  // --- HELPER: SCALING FACTORS ---
+  const getDifficultyScaling = () => {
+      const score = scoreRef.current;
+      let aggressiveness = 1.0;
+
+      if (difficulty === Difficulty.EASY) aggressiveness = 0.5;
+      else if (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) aggressiveness = 1.5;
+
+      // Density increases with score
+      const densityFactor = 1 + (score / 15000) * aggressiveness;
+      
+      // Speed increases with score (capped to prevent unplayable speeds)
+      const speedFactor = Math.min(2.0, 1 + (score / 25000) * aggressiveness);
+
+      return { densityFactor, speedFactor };
   };
 
   // --- SPAWNERS ---
@@ -162,14 +180,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     const size = type === 'ENEMY_ELITE' ? 60 : (type === 'ENEMY_SHOOTER' ? 40 : (type === 'ENEMY_KAMIKAZE' ? 25 : 30));
     const x = Math.random() * (canvasWidth - size);
     
-    let speed = (ENEMY_SPEED_BASE + Math.random() * 1.5) * difficultyMultiplierRef.current;
+    const { speedFactor } = getDifficultyScaling();
+    let speed = (ENEMY_SPEED_BASE + Math.random() * 1.5) * difficultyMultiplierRef.current * speedFactor;
     
     let hp = 1;
     let color = '#ff9900';
     let vx = (Math.random() - 0.5) * difficultyMultiplierRef.current * 0.5;
 
     // HP Scaling Factor: +4 HP for basic enemies every 600 points
-    // This makes them significantly tougher over time.
     const hpScaling = Math.floor(currentScore / 600) * 4;
 
     if (type === 'ENEMY_ELITE') {
@@ -213,9 +231,21 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     bossActiveRef.current = true;
     
     const isElite = scoreRef.current >= 10000;
-    const scoreScaling = Math.floor(scoreRef.current / 5000);
-    const baseHp = isElite ? 2000 : 1000; 
-    const totalHp = (baseHp + (scoreScaling * 400)) * (difficulty === Difficulty.EASY ? 0.7 : 1.0);
+    const scoreScaling = Math.floor(scoreRef.current / 5000); // 0, 1, 2, 3...
+    
+    // Significantly Buffed Boss HP
+    let baseHp = isElite ? 6000 : 3000; // Was 2000/1000
+    
+    // Scale aggressive based on difficulty
+    if (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) {
+        baseHp *= 1.5;
+    } else if (difficulty === Difficulty.EASY) {
+        baseHp *= 0.6;
+    }
+
+    // Growth per 5000 points
+    const growthPerStage = 1500 * difficultyMultiplierRef.current;
+    const totalHp = baseHp + (scoreScaling * growthPerStage);
 
     const width = isElite ? 180 : 140;
     const height = isElite ? 140 : 100;
@@ -305,37 +335,49 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
   const upgradePlayerRandomly = (canvasWidth: number, canvasHeight: number) => {
     const p = playerRef.current;
     const s = playerStats.current;
-    const rand = Math.random();
+    const currentLevel = s.spreadLevel + s.damage;
     
-    if (s.spreadLevel >= s.maxSpread && s.damage >= s.maxDamage && s.fireDelay <= 8) {
+    // Cap at Level 10
+    if (currentLevel >= MAX_WEAPON_LEVEL) {
         triggerSmartBomb(canvasWidth, canvasHeight);
         return;
     }
 
-    if (rand < 0.40) {
-        if (s.spreadLevel < s.maxSpread) { 
-            s.spreadLevel++; 
-            showFloatingText(p.x, p.y - 50, "多重火力 UP!", "#ffff00"); 
-        } else {
-             s.damage++; 
-             showFloatingText(p.x, p.y - 50, "火力强化!", "#ff0000");
-        }
-    } else if (rand < 0.70) {
-        if (s.fireDelay > 8) { 
-            s.fireDelay -= 1; 
-            showFloatingText(p.x, p.y - 50, "射速 UP!", "#00ffff"); 
-        } else {
-             s.damage++;
-             showFloatingText(p.x, p.y - 50, "火力强化!", "#ff0000");
+    const rand = Math.random();
+    
+    // Logic to distribute points between Damage (max 5) and Spread (max 5)
+    // Bias towards Damage early on, Spread later
+    
+    let upgraded = false;
+
+    if (rand < 0.5) {
+        // Try Upgrade Damage
+        if (s.damage < s.maxDamage) {
+            s.damage++;
+            showFloatingText(p.x, p.y - 50, "火力强化!", "#ff0000");
+            upgraded = true;
+        } else if (s.spreadLevel < s.maxSpread) {
+            s.spreadLevel++;
+            showFloatingText(p.x, p.y - 50, "多重火力 UP!", "#ffff00");
+            upgraded = true;
         }
     } else {
-        if (s.damage < s.maxDamage) {
-            s.damage++; 
-            showFloatingText(p.x, p.y - 50, "弹药威力 UP!", "#ff00ff");
-        } else {
-             if (s.spreadLevel < s.maxSpread) s.spreadLevel++;
-             else triggerSmartBomb(canvasWidth, canvasHeight);
+        // Try Upgrade Spread
+        if (s.spreadLevel < s.maxSpread) {
+            s.spreadLevel++;
+            showFloatingText(p.x, p.y - 50, "多重火力 UP!", "#ffff00");
+            upgraded = true;
+        } else if (s.damage < s.maxDamage) {
+            s.damage++;
+            showFloatingText(p.x, p.y - 50, "火力强化!", "#ff0000");
+            upgraded = true;
         }
+    }
+    
+    // Fire delay buff (separate from level, capped at 8)
+    if (s.fireDelay > 8) {
+        s.fireDelay -= 1;
+        if (!upgraded) showFloatingText(p.x, p.y - 50, "射速 UP!", "#00ffff");
     }
   };
 
@@ -360,9 +402,6 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     lastTimeRef.current = now;
 
     // Normalize to 60 FPS (16.67ms per frame)
-    // If device is 120Hz (8ms), timeScale will be 0.5
-    // If device is 30Hz (33ms), timeScale will be 2.0
-    // Clamp to avoid huge jumps if tab was hidden
     const timeScale = Math.min(Math.max(deltaTime / (1000 / 60), 0.1), 4.0);
     // -----------------------------
 
@@ -385,7 +424,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     // Draw Stars
     ctx.fillStyle = '#ffffff';
     starsRef.current.forEach(star => {
-        star.y += star.speed * timeScale;
+        const { speedFactor } = getDifficultyScaling();
+        star.y += star.speed * timeScale * speedFactor; // Stars move faster too
         if (star.y > canvas.height) {
             star.y = 0;
             star.x = Math.random() * canvas.width;
@@ -474,14 +514,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     }
 
     // Enemy Spawning (Accumulator)
-    const spawnRate = Math.max(20, Math.floor(SPAWN_RATE_BASE / difficultyMultiplierRef.current));
+    const { densityFactor } = getDifficultyScaling();
+    // Dynamic Spawn Rate: Faster as density factor increases
+    const spawnRate = Math.max(15, Math.floor(SPAWN_RATE_BASE / (difficultyMultiplierRef.current * densityFactor)));
+
     const bossEntity = enemiesRef.current.find(e => e.type === 'BOSS');
     // Allow minions during Boss if boss is tier 2 (Elite)
     const shouldSpawnMinions = bossEntity && bossEntity.bossTier && bossEntity.bossTier >= 2;
     
     if (shouldSpawnMinions) {
         accumulatorsRef.current.bossMinionSpawn += timeScale;
-        if (accumulatorsRef.current.bossMinionSpawn >= 120) {
+        if (accumulatorsRef.current.bossMinionSpawn >= 120 / densityFactor) {
             accumulatorsRef.current.bossMinionSpawn = 0;
             spawnEnemy(canvas.width);
         }
@@ -972,7 +1015,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     
     ctx.font = '12px monospace';
     ctx.fillStyle = '#ffff00';
-    ctx.fillText(`武器: LV ${stats.damage + stats.spreadLevel}`, 20, 90);
+    ctx.fillText(`武器: LV ${stats.damage + stats.spreadLevel}/${MAX_WEAPON_LEVEL}`, 20, 90);
 
     if (bossActiveRef.current) {
         ctx.fillStyle = 'rgba(255, 0, 0, 0.7)';
