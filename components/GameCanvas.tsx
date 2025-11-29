@@ -145,10 +145,13 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
     let type: 'ENEMY_BASIC' | 'ENEMY_SHOOTER' | 'ENEMY_ELITE' | 'ENEMY_KAMIKAZE' = 'ENEMY_BASIC';
     
     const hardMode = difficulty === Difficulty.HARDCORE;
+    const currentScore = scoreRef.current;
     
+    // Spawn Probabilities
     if (rand > 0.90) type = 'ENEMY_ELITE';
     else if (rand > 0.70) type = 'ENEMY_SHOOTER';
-    else if (rand > 0.55 && (hardMode || scoreRef.current > 2000)) type = 'ENEMY_KAMIKAZE';
+    // Lowered threshold for Kamikaze to 500 points (was 2000)
+    else if (rand > 0.50 && (hardMode || currentScore > 500)) type = 'ENEMY_KAMIKAZE';
 
     const size = type === 'ENEMY_ELITE' ? 60 : (type === 'ENEMY_SHOOTER' ? 40 : (type === 'ENEMY_KAMIKAZE' ? 25 : 30));
     const x = Math.random() * (canvasWidth - size);
@@ -159,21 +162,27 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
     let color = '#ff9900';
     let vx = (Math.random() - 0.5) * difficultyMultiplierRef.current * 0.5;
 
+    // HP Scaling Factor: +1 HP for basic enemies every 2000 points
+    const hpScaling = Math.floor(currentScore / 2000);
+
     if (type === 'ENEMY_ELITE') {
-        hp = 15 + (hardMode ? 10 : 0);
+        hp = 15 + (hardMode ? 10 : 0) + (hpScaling * 2); // Elites scale faster
         speed *= 0.4; 
         color = '#cc0000'; 
     } else if (type === 'ENEMY_SHOOTER') {
-        hp = 3;
+        hp = 3 + Math.floor(currentScore / 3000);
         speed *= 0.7;
         color = '#aa00ff';
     } else if (type === 'ENEMY_KAMIKAZE') {
-        hp = 1;
+        hp = 1; // Kamikazes are always fragile
         speed *= 2.0; 
         vx = 0; 
         color = '#00ffcc';
     } else {
-        hp = hardMode ? 2 : 1;
+        // Basic Enemies
+        const baseHp = hardMode ? 2 : 1;
+        // Cap max HP to prevent them becoming bullet sponges
+        hp = Math.min(baseHp + hpScaling, 10);
         color = '#ff9900'; 
     }
     
