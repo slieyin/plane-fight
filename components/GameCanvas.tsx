@@ -234,25 +234,25 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         speed *= 0.4; 
         color = '#cc0000'; 
     } else if (type === 'ENEMY_SHOOTER') {
-        hp = 3 + hpScaling;
+        hp = 3 + 2.0 * hpScaling;
         speed *= 0.7;
         color = '#aa00ff';
     } else if (type === 'ENEMY_KAMIKAZE') {
-        hp = 6 + hpScaling;
+        hp = 6 + 2.0*hpScaling;
         speed *= 2.0; 
         vx = 0; 
         color = '#00ffcc';
     } else if (type === 'ENEMY_MISSILE_DRONE') {
-        hp = 8 + hpScaling;
+        hp = 8 + 2.0*hpScaling;
         speed *= 1.2; // Fast approach
         color = '#ff5500';
     } else if (type === 'ENEMY_JAMMER') {
-        hp = 10 + hpScaling;
+        hp = 10 + 2.0*hpScaling;
         speed *= 0.5; // Slow
         color = '#0088ff';
     } else {
         const baseHp = hardMode ? 2 : 1;
-        hp = baseHp + hpScaling;
+        hp = baseHp + 2.0*hpScaling;
         color = '#ff9900'; 
     }
     
@@ -876,11 +876,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                 
             } else {
                 let scoreGain = 50; 
-                if (enemy.type === 'ENEMY_ELITE') scoreGain = 400;
-                if (enemy.type === 'ENEMY_KAMIKAZE') scoreGain = 200;
-                if (enemy.type === 'ENEMY_MISSILE_DRONE') scoreGain = 300;
-                if (enemy.type === 'ENEMY_JAMMER') scoreGain = 300;
-                if (enemy.type === 'ENEMY_MISSILE') scoreGain = 20;
+                if (enemy.type === 'ENEMY_ELITE') scoreGain = 200;
+                if (enemy.type === 'ENEMY_KAMIKAZE') scoreGain = 100;
+                if (enemy.type === 'ENEMY_MISSILE_DRONE') scoreGain = 200;
+                if (enemy.type === 'ENEMY_JAMMER') scoreGain = 200;
+                if (enemy.type === 'ENEMY_MISSILE') scoreGain = 10;
                 
                 if (bossActiveRef.current) {
                     scoreGain = Math.ceil(scoreGain * 0.2);
@@ -945,7 +945,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                  if ((p.jammedTimer || 0) <= 0) {
                      showFloatingText(p.x, p.y - 40, "警告: 系统干扰!", "#ff00ff");
                  }
-                 p.jammedTimer = 600; // 10 seconds (at 60fps)
+                 p.jammedTimer = 300; // 10 seconds (at 60fps)
              }
              return; // Wave doesn't die on contact
         }
