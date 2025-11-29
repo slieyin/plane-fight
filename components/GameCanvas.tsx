@@ -10,7 +10,7 @@ interface GameCanvasProps {
 const BULLET_SPEED = 15;
 const ENEMY_SPEED_BASE = 2;
 const SPAWN_RATE_BASE = 60; // Frames
-const SUPPLY_DROP_INTERVAL = 1500; // Frames (approx 25 seconds at 60fps)
+const SUPPLY_DROP_INTERVAL = 900; // Frames (approx 15 seconds at 60fps) - REDUCED from 25s
 
 // Boss Milestones
 const BOSS_START_SCORE = 5000;
@@ -62,12 +62,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
   const starsRef = useRef<Star[]>([]);
   const difficultyMultiplierRef = useRef(1);
 
-  // Set difficulty params
+  // Set difficulty params - REBALANCED
   useEffect(() => {
     switch (difficulty) {
-      case Difficulty.EASY: difficultyMultiplierRef.current = 1; break;
-      case Difficulty.NORMAL: difficultyMultiplierRef.current = 1.5; break;
-      case Difficulty.HARDCORE: difficultyMultiplierRef.current = 2.5; break;
+      case Difficulty.EASY: difficultyMultiplierRef.current = 0.8; break; // Was 1.0
+      case Difficulty.NORMAL: difficultyMultiplierRef.current = 1.2; break; // Was 1.5
+      case Difficulty.HARDCORE: difficultyMultiplierRef.current = 2.0; break; // Was 2.5
     }
     // Reset boss threshold on start
     nextBossScoreRef.current = BOSS_START_SCORE;
@@ -157,9 +157,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
     const isElite = scoreRef.current >= 10000;
     
     // Scale boss HP based on score and difficulty
-    // NERFED HP: Base values reduced significantly
-    const baseHp = isElite ? 2500 : 800; 
-    const scalingHp = Math.floor(scoreRef.current * 0.15); // Reduced scaling factor from 0.2 to 0.15
+    // NERFED HP AGAIN: Base values reduced
+    const baseHp = isElite ? 2000 : 600; // Reduced from 2500/800
+    const scalingHp = Math.floor(scoreRef.current * 0.1); // Reduced scaling
     const totalHp = (baseHp + scalingHp) * difficultyMultiplierRef.current;
 
     const width = isElite ? 160 : 120;
@@ -194,14 +194,18 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
     
     if (forcedType) {
         type = forcedType;
-        if (type === 'BOSS_REWARD') color = '#00ffff'; // Cyan for boss core
+        if (type === 'BOSS_REWARD') color = '#00ffff'; 
         else if (type === 'WEAPON_UPGRADE') color = '#ffff00';
     } else {
         // Random drops from normal enemies
+        // FIX: Better distribution for random drops
         const rand = Math.random();
-        if (rand > 0.85) { // Slight nerf to random drop rate to balance periodic drops
+        if (rand < 0.5) { 
              type = 'WEAPON_UPGRADE';
              color = '#ffff00';
+        } else {
+             type = 'HEAL';
+             color = '#00ff00';
         }
     }
 
@@ -409,7 +413,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
                 e.attackTimer = (e.attackTimer || 0) + 1;
                 
                 // Attack patterns based on Tier
-                const attackRate = e.bossTier === 2 ? 40 : 60; // Elite fires faster
+                // Slower attack rate for easy mode
+                const attackRate = (e.bossTier === 2 ? 40 : 60) * (difficulty === Difficulty.EASY ? 1.5 : 1);
                 
                 if (e.attackTimer > attackRate) {
                     e.attackTimer = 0;
@@ -451,19 +456,14 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
             item.dead = true;
             
             if (item.itemType === 'HEAL') {
-                p.hp = Math.min(p.maxHp, p.hp + 50); // BUFFED HEAL: 30 -> 50
+                p.hp = Math.min(p.maxHp, p.hp + 50); 
                 particlesRef.current.push({ x: p.x, y: p.y, vx: 0, vy: -2, life: 1, decay: 0.02, color: '#00ff00', size: 20, isShockwave: true, type: 'PARTICLE', hp: 0, width: 0, height: 0 });
                 showFloatingText(p.x, p.y, "+HP", "#00ff00");
             } else if (item.itemType === 'WEAPON_UPGRADE') {
-                // Determine if it triggers a full upgrade or just score/small bonus
-                // For periodic drops, we usually want real upgrades
-                if (Math.random() > 0.3) {
-                   upgradePlayerRandomly();
-                   particlesRef.current.push({ x: p.x, y: p.y, vx: 0, vy: -2, life: 1.5, decay: 0.01, color: '#ffff00', size: 40, isShockwave: true, type: 'PARTICLE', hp: 0, width: 0, height: 0 });
-                } else {
-                    scoreRef.current += 500;
-                    showFloatingText(p.x, p.y, "+500", "#ffff00");
-                }
+                // Always upgrade when picking up the weapon item
+                upgradePlayerRandomly();
+                particlesRef.current.push({ x: p.x, y: p.y, vx: 0, vy: -2, life: 1.5, decay: 0.01, color: '#ffff00', size: 40, isShockwave: true, type: 'PARTICLE', hp: 0, width: 0, height: 0 });
+                scoreRef.current += 100;
             } else if (item.itemType === 'BOSS_REWARD') {
                 upgradePlayerRandomly();
                 particlesRef.current.push({ x: p.x, y: p.y, vx: 0, vy: -2, life: 1.5, decay: 0.01, color: '#00ffff', size: 50, isShockwave: true, type: 'PARTICLE', hp: 0, width: 0, height: 0 });
@@ -511,9 +511,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver }) => {
                 scoreRef.current += 100 * difficultyMultiplierRef.current;
                 createExplosion(enemy.x + enemy.width/2, enemy.y + enemy.height/2, enemy.color);
                 shakeRef.current += 2;
-                // Chance to drop heal item
-                if (Math.random() < 0.05) { // Slightly increased heal drop rate
-                    spawnItem(enemy.x + enemy.width/2, enemy.y + enemy.height/2, 'HEAL');
+                
+                // FIXED: Random drop logic for items (10% chance)
+                if (Math.random() < 0.10) { 
+                    spawnItem(enemy.x + enemy.width/2, enemy.y + enemy.height/2); // No forced type, allowing WEAPON_UPGRADE
                 }
             }
           }
