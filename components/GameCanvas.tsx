@@ -175,8 +175,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
   };
 
   const spawnMissile = (x: number, y: number) => {
-    bulletsRef.current.push({
-        x: x, y: y, width: 10, height: 20,
+    // Missile is now an Enemy type so it can be destroyed
+    enemiesRef.current.push({
+        x: x - 8, y: y, width: 16, height: 32,
         vx: 0, vy: 2, // Initial speed
         color: '#ff3300', hp: 1, type: 'ENEMY_MISSILE',
         rotation: 0
@@ -203,9 +204,15 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     const hardMode = difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS;
     const currentScore = scoreRef.current;
     
+    // Progression Locks
+    // Jammer unlocks after ~1st Boss (Score > 6000)
+    const allowJammer = currentScore > 6000;
+    // Missile Drone unlocks after ~2nd Boss (Score > 11000)
+    const allowMissileDrone = currentScore > 11000;
+
     // Spawn Probabilities
-    if (rand > 0.94) type = 'ENEMY_MISSILE_DRONE';
-    else if (rand > 0.88) type = 'ENEMY_JAMMER';
+    if (allowMissileDrone && rand > 0.94) type = 'ENEMY_MISSILE_DRONE';
+    else if (allowJammer && rand > 0.88) type = 'ENEMY_JAMMER';
     else if (rand > 0.80) type = 'ENEMY_ELITE';
     else if (rand > 0.65) type = 'ENEMY_SHOOTER';
     else if (rand > 0.50 && (hardMode || currentScore > 500)) type = 'ENEMY_KAMIKAZE';
@@ -231,7 +238,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         speed *= 0.7;
         color = '#aa00ff';
     } else if (type === 'ENEMY_KAMIKAZE') {
-        hp = 1;
+        hp = 6 + hpScaling;
         speed *= 2.0; 
         vx = 0; 
         color = '#00ffcc';
@@ -599,33 +606,9 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         }
     }
 
-    // Update Projectiles (Bullets, Missiles, Waves)
+    // Update Projectiles (Bullets, Waves)
     bulletsRef.current.forEach(b => { 
-        if (b.type === 'ENEMY_MISSILE') {
-             // Homing Logic
-             const targetX = p.x + p.width/2;
-             const targetY = p.y + p.height/2;
-             const dx = targetX - b.x;
-             const dy = targetY - b.y;
-             const dist = Math.sqrt(dx*dx + dy*dy);
-             if (dist > 0) {
-                 // Steering
-                 const speed = 4;
-                 const steerStrength = 0.08 * timeScale;
-                 b.vx += (dx/dist * speed - b.vx) * steerStrength;
-                 b.vy += (dy/dist * speed - b.vy) * steerStrength;
-                 // Cap speed
-                 const currentSpeed = Math.sqrt(b.vx*b.vx + b.vy*b.vy);
-                 b.vx = (b.vx / currentSpeed) * speed;
-                 b.vy = (b.vy / currentSpeed) * speed;
-                 
-                 // Rotate missile to face velocity
-                 b.rotation = Math.atan2(b.vy, b.vx) + Math.PI/2;
-             }
-             b.x += b.vx * timeScale;
-             b.y += b.vy * timeScale;
-
-        } else if (b.type === 'ENEMY_WAVE') {
+        if (b.type === 'ENEMY_WAVE') {
              // Expanding Wave
              const expansion = 4 * timeScale;
              b.x -= expansion/2;
@@ -789,6 +772,34 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                 spawnEnemyBullet(cx, cy, -1.5, 3.5, '#cc0000', 10);
                 spawnEnemyBullet(cx, cy, 1.5, 3.5, '#cc0000', 10);
             }
+        } else if (e.type === 'ENEMY_MISSILE') {
+             // Homing Logic
+             const targetX = p.x + p.width/2;
+             const targetY = p.y + p.height/2;
+             const eCx = e.x + e.width/2;
+             const eCy = e.y + e.height/2;
+             
+             const dx = targetX - eCx;
+             const dy = targetY - eCy;
+             const dist = Math.sqrt(dx*dx + dy*dy);
+             if (dist > 0) {
+                 // Steering
+                 const speed = 5; 
+                 const steerStrength = 0.08 * timeScale;
+                 e.vx += (dx/dist * speed - e.vx) * steerStrength;
+                 e.vy += (dy/dist * speed - e.vy) * steerStrength;
+                 
+                 // Cap speed
+                 const currentSpeed = Math.sqrt(e.vx*e.vx + e.vy*e.vy);
+                 if (currentSpeed > 0) {
+                    e.vx = (e.vx / currentSpeed) * speed;
+                    e.vy = (e.vy / currentSpeed) * speed;
+                 }
+                 
+                 e.rotation = Math.atan2(e.vy, e.vx) + Math.PI/2;
+             }
+             e.x += e.vx * timeScale;
+             e.y += e.vy * timeScale;
         } else {
             e.x += e.vx * timeScale; 
             e.y += e.vy * timeScale; 
@@ -869,6 +880,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                 if (enemy.type === 'ENEMY_KAMIKAZE') scoreGain = 200;
                 if (enemy.type === 'ENEMY_MISSILE_DRONE') scoreGain = 300;
                 if (enemy.type === 'ENEMY_JAMMER') scoreGain = 300;
+                if (enemy.type === 'ENEMY_MISSILE') scoreGain = 20;
                 
                 if (bossActiveRef.current) {
                     scoreGain = Math.ceil(scoreGain * 0.2);
@@ -878,7 +890,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                 createExplosion(enemy.x + enemy.width/2, enemy.y + enemy.height/2, enemy.color);
                 shakeRef.current += 2;
                 
-                if (Math.random() < 0.10) { 
+                if (enemy.type !== 'ENEMY_MISSILE' && Math.random() < 0.10) { 
                     spawnItem(enemy.x + enemy.width/2, enemy.y + enemy.height/2); 
                 }
             }
@@ -908,7 +920,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
       }
     });
 
-    // 4. Enemy Bullets / Missiles / Waves -> Player
+    // 4. Enemy Bullets / Waves -> Player
     bulletsRef.current.forEach(bullet => {
         if (bullet.type === 'PLAYER_BULLET') return;
         
@@ -938,7 +950,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
              return; // Wave doesn't die on contact
         }
 
-        // Standard Bullet/Missile Collision
+        // Standard Bullet Collision
         if (
             !bullet.dead && p.hp > 0 &&
             p.invulnerableTimer === 0 &&
@@ -1033,19 +1045,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
       ctx.shadowColor = b.color;
       ctx.fillStyle = b.color;
       
-      if (b.type === 'ENEMY_MISSILE') {
-          ctx.save();
-          ctx.translate(b.x, b.y); // Pivot at position
-          ctx.rotate(b.rotation || 0);
-          ctx.beginPath();
-          ctx.moveTo(0, -5);
-          ctx.lineTo(5, 5);
-          ctx.lineTo(0, 3);
-          ctx.lineTo(-5, 5);
-          ctx.closePath();
-          ctx.fill();
-          ctx.restore();
-      } else if (b.type === 'ENEMY_WAVE') {
+      if (b.type === 'ENEMY_WAVE') {
           ctx.shadowBlur = 0;
           ctx.strokeStyle = `rgba(0, 204, 255, ${Math.min(1, b.life || 1)})`;
           ctx.lineWidth = 3;
@@ -1152,6 +1152,19 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
           ctx.moveTo(0, e.height/2);
           ctx.lineTo(-e.width/2, -e.height/2);
           ctx.lineTo(e.width/2, -e.height/2);
+          ctx.closePath();
+          ctx.fill();
+      } else if (e.type === 'ENEMY_MISSILE') {
+          ctx.rotate(e.rotation || 0);
+          ctx.shadowBlur = 10;
+          ctx.shadowColor = e.color;
+          ctx.fillStyle = e.color;
+          // Missile shape
+          ctx.beginPath();
+          ctx.moveTo(0, -e.height/2);
+          ctx.lineTo(e.width/2, e.height/2);
+          ctx.lineTo(0, e.height/2 - 8);
+          ctx.lineTo(-e.width/2, e.height/2);
           ctx.closePath();
           ctx.fill();
       } else {
