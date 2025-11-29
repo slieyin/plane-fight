@@ -205,7 +205,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         speed *= 0.7;
         color = '#aa00ff';
     } else if (type === 'ENEMY_KAMIKAZE') {
-        hp = 1; // Kamikazes are always fragile
+        hp = 4 + hpScaling; // Kamikazes are always fragile
         speed *= 2.0; 
         vx = 0; 
         color = '#00ffcc';
