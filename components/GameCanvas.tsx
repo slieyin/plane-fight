@@ -18,7 +18,7 @@ const SUPPLY_DROP_INTERVAL = 1200;
 
 // Boss Milestones
 const BOSS_START_SCORE = 5000;
-const VICTORY_SCORE = 20000;
+const FINAL_BOSS_SCORE = 20000;
 const MAX_WEAPON_LEVEL = 10;
 
 interface Star {
@@ -35,6 +35,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
   const scoreRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0); // For Delta Time
   const wonRef = useRef<boolean>(false);
+  const finalBossSpawnedRef = useRef<boolean>(false);
   
   // Logic Accumulators (replacing frameCount modulo checks)
   const accumulatorsRef = useRef({
@@ -94,6 +95,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     bossActiveRef.current = false;
     accumulatorsRef.current.supplyDrop = 0;
     wonRef.current = false;
+    finalBossSpawnedRef.current = false;
   }, [difficulty]);
 
   // Init Stars
@@ -165,6 +167,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
   };
 
   const spawnEnemy = (canvasWidth: number) => {
+    // Stop spawning basic enemies if Final Boss (Tier 3) is active
+    const boss = enemiesRef.current.find(e => e.type === 'BOSS');
+    if (boss && boss.bossTier === 3) return;
+
     const rand = Math.random();
     let type: 'ENEMY_BASIC' | 'ENEMY_SHOOTER' | 'ENEMY_ELITE' | 'ENEMY_KAMIKAZE' = 'ENEMY_BASIC';
     
@@ -230,12 +236,24 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
   const spawnBoss = (canvasWidth: number) => {
     bossActiveRef.current = true;
     
-    const isElite = scoreRef.current >= 10000;
-    const scoreScaling = Math.floor(scoreRef.current / 5000); // 0, 1, 2, 3...
+    const currentScore = scoreRef.current;
     
-    // Significantly Buffed Boss HP
-    let baseHp = isElite ? 6000 : 3000; // Was 2000/1000
+    // Determine Boss Tier
+    let tier = 1;
+    if (difficulty !== Difficulty.ENDLESS && currentScore >= FINAL_BOSS_SCORE) {
+        tier = 3; // Final Boss
+        finalBossSpawnedRef.current = true;
+    } else if (currentScore >= 10000) {
+        tier = 2; // Elite Boss
+    }
+
+    const scoreScaling = Math.floor(currentScore / 5000); // 0, 1, 2, 3...
     
+    // Base HP based on Tier
+    let baseHp = 3000;
+    if (tier === 2) baseHp = 6000;
+    if (tier === 3) baseHp = 30000; // Massive HP for final boss
+
     // Scale aggressive based on difficulty
     if (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) {
         baseHp *= 1.5;
@@ -243,13 +261,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         baseHp *= 0.6;
     }
 
-    // Growth per 5000 points
+    // Growth per 5000 points (Only applies to non-final bosses significantly)
     const growthPerStage = 1500 * difficultyMultiplierRef.current;
-    const totalHp = baseHp + (scoreScaling * growthPerStage);
+    const totalHp = baseHp + (tier === 3 ? 0 : scoreScaling * growthPerStage);
 
-    const width = isElite ? 180 : 140;
-    const height = isElite ? 140 : 100;
-    const color = isElite ? '#ff0033' : '#aa00ff';
+    let width = 140;
+    let height = 100;
+    let color = '#aa00ff'; // Tier 1 Purple
+
+    if (tier === 2) {
+        width = 180;
+        height = 140;
+        color = '#ff0033'; // Tier 2 Red
+    } else if (tier === 3) {
+        width = 240;
+        height = 180;
+        color = '#FFD700'; // Tier 3 Gold
+    }
 
     enemiesRef.current.push({
       x: canvasWidth / 2 - width / 2,
@@ -262,15 +290,20 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
       maxHp: totalHp,
       color: color, 
       type: 'BOSS',
-      bossTier: isElite ? 2 : 1, 
+      bossTier: tier,
       rotation: 0,
       rotationSpeed: 0,
       attackTimer: 0,
       bossPhase: 0
     });
     
-    shakeRef.current = 15;
-    showFloatingText(canvasWidth/2, 200, isElite ? "⚠️ 歼灭模式 ⚠️" : "⚠️ 强敌出现 ⚠️", "#ff0000");
+    shakeRef.current = tier === 3 ? 30 : 15;
+    
+    let text = "⚠️ 强敌出现 ⚠️";
+    if (tier === 2) text = "⚠️ 歼灭模式 ⚠️";
+    if (tier === 3) text = "☠️ 终极审判 ☠️";
+
+    showFloatingText(canvasWidth/2, 200, text, color);
   };
 
   const spawnItem = (x: number, y: number, forcedType?: ItemType) => {
@@ -386,12 +419,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Check Victory
-    if (scoreRef.current >= VICTORY_SCORE && difficulty !== Difficulty.ENDLESS && !wonRef.current) {
-        wonRef.current = true;
-        onGameWin(Math.floor(scoreRef.current));
-        return;
-    }
+    // Victory Check is now MOVED to Boss Death logic for Non-Endless modes.
+    // We do NOT check score limit here anymore because 20k triggers a boss instead.
 
     // --- DELTA TIME CALCULATION ---
     const now = performance.now();
@@ -509,8 +538,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     }
 
     // Boss Spawning
-    if (!bossActiveRef.current && scoreRef.current >= nextBossScoreRef.current) {
-        spawnBoss(canvas.width);
+    if (!bossActiveRef.current) {
+        // Normal Boss Spawn
+        if (scoreRef.current >= nextBossScoreRef.current) {
+             spawnBoss(canvas.width);
+        }
     }
 
     // Enemy Spawning (Accumulator)
@@ -519,8 +551,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     const spawnRate = Math.max(15, Math.floor(SPAWN_RATE_BASE / (difficultyMultiplierRef.current * densityFactor)));
 
     const bossEntity = enemiesRef.current.find(e => e.type === 'BOSS');
-    // Allow minions during Boss if boss is tier 2 (Elite)
-    const shouldSpawnMinions = bossEntity && bossEntity.bossTier && bossEntity.bossTier >= 2;
+    // Allow minions during Boss if boss is Tier 2 (Elite) AND NOT Tier 3 (Final)
+    const shouldSpawnMinions = bossEntity && bossEntity.bossTier && bossEntity.bossTier >= 2 && bossEntity.bossTier < 3;
     
     if (shouldSpawnMinions) {
         accumulatorsRef.current.bossMinionSpawn += timeScale;
@@ -574,6 +606,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
 
                 // Fire Rate based on difficulty
                 let attackRate = (e.bossTier === 2 ? 30 : 50);
+                if (e.bossTier === 3) attackRate = 20; // Final Boss fires faster
+
                 if (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) attackRate *= 0.6; 
                 if (difficulty === Difficulty.EASY) attackRate *= 1.5; 
 
@@ -583,25 +617,57 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                     const cy = e.y + e.height;
                     const phase = e.bossPhase || 0;
 
-                    if (phase === 0) { // Ring
-                        const density = (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) ? 0.15 : 0.25;
-                        for(let angle = -0.7; angle <= 0.7; angle += density) {
-                            spawnEnemyBullet(cx, cy, Math.sin(angle) * 5, Math.cos(angle) * 5, e.color);
+                    if (e.bossTier === 3) {
+                        // --- FINAL BOSS PATTERNS ---
+                        if (phase === 0) { // Stream + Spread
+                             const pCx = p.x + p.width/2;
+                             const pCy = p.y + p.height/2;
+                             const dx = pCx - cx;
+                             const dy = pCy - cy;
+                             const dist = Math.sqrt(dx*dx + dy*dy);
+                             
+                             // Aimed stream
+                             spawnEnemyBullet(cx, cy, (dx/dist)*12, (dy/dist)*12, '#ffaa00', 12);
+                             // Side spread
+                             spawnEnemyBullet(cx - 40, cy, -2, 8, '#ffaa00', 10);
+                             spawnEnemyBullet(cx + 40, cy, 2, 8, '#ffaa00', 10);
+                        } else if (phase === 1) { // Galaxy Spiral
+                             const spiralDensity = 0.4;
+                             const timeOffset = accumulatorsRef.current.bossPattern * 0.1;
+                             for(let angle = 0; angle < Math.PI * 2; angle += spiralDensity) {
+                                 const finalAngle = angle + timeOffset;
+                                 spawnEnemyBullet(cx, cy, Math.cos(finalAngle) * 7, Math.sin(finalAngle) * 7, '#FFD700', 10);
+                             }
+                        } else if (phase === 2) { // Chaos Rain
+                             for(let i=0; i<3; i++) {
+                                 const rx = Math.random() * canvas.width;
+                                 spawnEnemyBullet(rx, -10, 0, 10 + Math.random()*5, '#ffffff', 8);
+                             }
+                             // Direct shots too
+                             spawnEnemyBullet(cx, cy, (Math.random()-0.5)*10, 8, '#ff0000', 10);
                         }
-                    } else if (phase === 1) { // Sniper
-                         const dx = (p.x + p.width/2) - cx;
-                         const dy = (p.y + p.height/2) - cy;
-                         const dist = Math.sqrt(dx*dx + dy*dy);
-                         spawnEnemyBullet(cx, cy, (dx/dist)*9, (dy/dist)*9, '#ffffff', 10);
-                         if (e.bossTier === 2) {
-                             spawnEnemyBullet(cx - 20, cy, (dx/dist)*9, (dy/dist)*9, '#ffffff', 10);
-                             spawnEnemyBullet(cx + 20, cy, (dx/dist)*9, (dy/dist)*9, '#ffffff', 10);
-                         }
-                    } else if (phase === 2) { // Random Spray
-                        const count = (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) ? 8 : 4;
-                        for(let i=0; i<count; i++) {
-                            const angle = (Math.random() - 0.5) * Math.PI; 
-                            spawnEnemyBullet(cx, cy, Math.sin(angle) * 6, Math.cos(angle) * 6, '#ff9900', 8);
+                    } else {
+                        // --- NORMAL / ELITE PATTERNS ---
+                        if (phase === 0) { // Ring
+                            const density = (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) ? 0.15 : 0.25;
+                            for(let angle = -0.7; angle <= 0.7; angle += density) {
+                                spawnEnemyBullet(cx, cy, Math.sin(angle) * 5, Math.cos(angle) * 5, e.color);
+                            }
+                        } else if (phase === 1) { // Sniper
+                            const dx = (p.x + p.width/2) - cx;
+                            const dy = (p.y + p.height/2) - cy;
+                            const dist = Math.sqrt(dx*dx + dy*dy);
+                            spawnEnemyBullet(cx, cy, (dx/dist)*9, (dy/dist)*9, '#ffffff', 10);
+                            if (e.bossTier === 2) {
+                                spawnEnemyBullet(cx - 20, cy, (dx/dist)*9, (dy/dist)*9, '#ffffff', 10);
+                                spawnEnemyBullet(cx + 20, cy, (dx/dist)*9, (dy/dist)*9, '#ffffff', 10);
+                            }
+                        } else if (phase === 2) { // Random Spray
+                            const count = (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) ? 8 : 4;
+                            for(let i=0; i<count; i++) {
+                                const angle = (Math.random() - 0.5) * Math.PI; 
+                                spawnEnemyBullet(cx, cy, Math.sin(angle) * 6, Math.cos(angle) * 6, '#ff9900', 8);
+                            }
                         }
                     }
                 }
@@ -710,9 +776,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
             if (enemy.type === 'BOSS') {
                 // Boss provides NO score
                 scoreRef.current += 0; 
-                createExplosion(enemy.x + enemy.width/2, enemy.y + enemy.height/2, enemy.color, 4);
-                shakeRef.current = 25;
+                createExplosion(enemy.x + enemy.width/2, enemy.y + enemy.height/2, enemy.color, 6);
+                shakeRef.current = 40;
                 bossActiveRef.current = false;
+                
+                // If it was the Final Boss (Tier 3), WIN GAME
+                if (enemy.bossTier === 3 && !wonRef.current) {
+                    wonRef.current = true;
+                    onGameWin(Math.floor(scoreRef.current));
+                    return;
+                }
+
                 spawnItem(enemy.x + enemy.width/2, enemy.y + enemy.height/2, 'BOSS_REWARD');
                 
                 const currentScore = scoreRef.current;
@@ -724,6 +798,11 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                 if (enemy.type === 'ENEMY_ELITE') scoreGain = 400;
                 if (enemy.type === 'ENEMY_KAMIKAZE') scoreGain = 200;
                 
+                // Penalty: If Boss is active, score is reduced by 80%
+                if (bossActiveRef.current) {
+                    scoreGain = Math.ceil(scoreGain * 0.2);
+                }
+
                 scoreRef.current += scoreGain * difficultyMultiplierRef.current;
                 createExplosion(enemy.x + enemy.width/2, enemy.y + enemy.height/2, enemy.color);
                 shakeRef.current += 2;
@@ -890,8 +969,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
           ctx.closePath();
           ctx.fill();
           
-          if (e.bossTier === 2) {
-             ctx.fillStyle = '#ff0000';
+          if (e.bossTier && e.bossTier >= 2) {
+             ctx.fillStyle = e.bossTier === 3 ? '#ffffff' : '#ff0000';
              ctx.beginPath();
              ctx.moveTo(0, e.height/2 + 20);
              ctx.lineTo(-15, 0);
@@ -1023,7 +1102,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         ctx.textAlign = 'center';
         const alpha = Math.abs(Math.sin(accumulatorsRef.current.bossPattern * 0.1));
         ctx.globalAlpha = alpha;
-        ctx.fillText("BOSS 警报", canvas.width / 2, 120);
+        const bossEntity = enemiesRef.current.find(e => e.type === 'BOSS');
+        let bossText = "BOSS 警报";
+        if (bossEntity && bossEntity.bossTier === 3) bossText = "☠️ 终极审判 ☠️";
+        ctx.fillText(bossText, canvas.width / 2, 120);
         ctx.globalAlpha = 1.0;
         ctx.textAlign = 'left';
     }
