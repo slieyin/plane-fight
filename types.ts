@@ -33,7 +33,7 @@ export interface Entity {
   color: string;
   hp: number;
   maxHp?: number;
-  type: 'PLAYER' | 'ENEMY_BASIC' | 'ENEMY_SHOOTER' | 'ENEMY_ELITE' | 'ENEMY_KAMIKAZE' | 'PLAYER_BULLET' | 'ENEMY_BULLET' | 'PARTICLE' | 'BOSS' | 'ITEM';
+  type: 'PLAYER' | 'ENEMY_BASIC' | 'ENEMY_SHOOTER' | 'ENEMY_ELITE' | 'ENEMY_KAMIKAZE' | 'ENEMY_MISSILE_DRONE' | 'ENEMY_JAMMER' | 'PLAYER_BULLET' | 'ENEMY_BULLET' | 'ENEMY_MISSILE' | 'ENEMY_WAVE' | 'PARTICLE' | 'BOSS' | 'ITEM';
   
   // Specific properties
   rotation?: number;
@@ -46,6 +46,7 @@ export interface Entity {
   
   // Player specific
   invulnerableTimer?: number;
+  jammedTimer?: number; // New: Debuff timer
 
   // Item/Boss/Enemy specific
   itemType?: ItemType;
