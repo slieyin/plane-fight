@@ -23,7 +23,6 @@ const SUPPLY_DROP_INTERVAL = 1200;
 // Boss Milestones
 const BOSS_START_SCORE = 5000;
 const FINAL_BOSS_SCORE = 20000;
-const MAX_WEAPON_LEVEL = 15;
 
 // Helper for Laser Collision (Point distance to Line Segment)
 function distToSegment(p: {x:number, y:number}, v: {x:number, y:number}, w: {x:number, y:number}) {
@@ -82,7 +81,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     fireDelay: 15, 
     damage: 1,
     maxSpread: 5, 
-    maxDamage: 5
+    maxDamage: 5,
+    maxLevel: 10
   });
 
   const lastTouchX = useRef(0);
@@ -93,6 +93,27 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
   const itemsRef = useRef<Entity[]>([]); 
   const starsRef = useRef<Star[]>([]);
   const difficultyMultiplierRef = useRef(1);
+
+  // Difficulty Config Helper
+  const getWeaponCaps = (diff: Difficulty) => {
+      // Base spread is capped at 5 for visual reasons
+      const maxSpread = 5; 
+      let maxLevel = 10;
+      
+      switch (diff) {
+          case Difficulty.EASY: maxLevel = 20; break;
+          case Difficulty.NORMAL: maxLevel = 15; break;
+          case Difficulty.HARDCORE: maxLevel = 10; break;
+          case Difficulty.ENDLESS: maxLevel = 100; break;
+      }
+      
+      // Damage takes whatever is left after spread is maxed
+      // Initial stats are spread=0, damage=1. Level = 1.
+      // So maxDamage = maxLevel - maxSpread.
+      const maxDamage = Math.max(5, maxLevel - maxSpread);
+      
+      return { maxLevel, maxSpread, maxDamage };
+  };
 
   // Set difficulty params
   useEffect(() => {
@@ -107,7 +128,21 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     accumulatorsRef.current.supplyDrop = 0;
     wonRef.current = false;
     finalBossSpawnedRef.current = false;
-  }, [difficulty]);
+    
+    // Reset Player Stats based on difficulty caps
+    const caps = getWeaponCaps(difficulty);
+    playerStats.current.maxLevel = caps.maxLevel;
+    playerStats.current.maxDamage = caps.maxDamage;
+    playerStats.current.maxSpread = caps.maxSpread;
+    playerStats.current.spreadLevel = 0;
+    playerStats.current.damage = 1;
+    playerStats.current.fireDelay = 15;
+    
+    // Reset HP based on config
+    playerRef.current.hp = config.playerMaxHp;
+    playerRef.current.maxHp = config.playerMaxHp;
+
+  }, [difficulty, config.playerMaxHp]);
 
   // Init Stars
   useEffect(() => {
@@ -152,13 +187,23 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     const vy = -Math.cos(angleOffset) * speed;
     
     let effectiveDamage = stats.damage;
-    if (isJammed) effectiveDamage = Math.max(1, Math.floor(stats.damage / 2));
 
-    const size = Math.min(12, 4 + (effectiveDamage - 1) * 2);
-    const color = isJammed ? '#888888' : (stats.damage > 3 ? '#ffaaee' : (stats.damage > 1 ? '#ffff00' : '#00ffff'));
+    // Endless mode reduced scaling: 40% efficiency for damage stats
+    if (difficulty === Difficulty.ENDLESS) {
+        effectiveDamage = Math.max(1, Math.ceil(stats.damage * 0.4));
+    }
+
+    if (isJammed) effectiveDamage = Math.max(1, Math.floor(effectiveDamage / 2));
+
+    // Cap visual size so it doesn't cover the screen at level 100
+    const visualSizeDamage = Math.min(6, effectiveDamage); 
+    const size = Math.min(16, 4 + (visualSizeDamage - 1) * 2);
+    
+    // Color changes based on raw stat tier
+    const color = isJammed ? '#888888' : (stats.damage > 10 ? '#ff00ff' : (stats.damage > 3 ? '#ffaaee' : (stats.damage > 1 ? '#ffff00' : '#00ffff')));
 
     bulletsRef.current.push({
-      x: x - size/2, y, width: size, height: 16 + (effectiveDamage * 2), 
+      x: x - size/2, y, width: size, height: 16 + (visualSizeDamage * 2), 
       vx: vx, vy: vy, 
       color: color, 
       hp: effectiveDamage, 
@@ -170,11 +215,12 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     });
   };
 
-  const spawnEnemyBullet = (x: number, y: number, vx: number, vy: number, color: string = '#ff0055', size: number = 8) => {
+  const spawnEnemyBullet = (x: number, y: number, vx: number, vy: number, color: string = '#ff0055', size: number = 8, isBouncing: boolean = false) => {
     bulletsRef.current.push({
       x: x - size/2, y, width: size, height: size, 
       vx: vx, vy: vy, 
-      color: color, hp: 1, type: 'ENEMY_BULLET'
+      color: color, hp: 1, type: 'ENEMY_BULLET',
+      isBouncing
     });
   };
 
@@ -402,7 +448,8 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     const s = playerStats.current;
     const currentLevel = s.spreadLevel + s.damage;
     
-    if (currentLevel >= MAX_WEAPON_LEVEL) {
+    // Check against dynamic max level
+    if (currentLevel >= s.maxLevel) {
         triggerSmartBomb(canvasWidth, canvasHeight);
         return;
     }
@@ -410,6 +457,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     const rand = Math.random();
     let upgraded = false;
 
+    // Prioritize Spread until it hits cap, then dump into Damage
     if (rand < 0.5) {
         if (s.damage < s.maxDamage) {
             s.damage++;
@@ -553,6 +601,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                    spawnPlayerBullet(centerX - 15, p.y + 20, -0.15);
                    spawnPlayerBullet(centerX + 15, p.y + 20, 0.15);
                }
+               if (stats.spreadLevel >= 5) {
+                   spawnPlayerBullet(centerX - 20, p.y + 25, -0.17);
+                   spawnPlayerBullet(centerX + 20, p.y + 25, 0.17);
+               }
            }
         }
     }
@@ -607,6 +659,17 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
         } else {
              b.x += b.vx * timeScale; 
              b.y += b.vy * timeScale; 
+             
+             // Bouncing Logic for specific boss bullets
+             if (b.isBouncing) {
+                 if (b.x <= 0) {
+                     b.x = 0;
+                     b.vx = -b.vx;
+                 } else if (b.x + b.width >= canvas.width) {
+                     b.x = canvas.width - b.width;
+                     b.vx = -b.vx;
+                 }
+             }
         }
     });
     bulletsRef.current = bulletsRef.current.filter(b => !b.dead && b.y > -50 && b.y < canvas.height + 50 && (b.type !== 'ENEMY_WAVE' || (b.life && b.life > 0)));
@@ -662,7 +725,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                          const cy = e.y + e.height/2;
                          const angle = e.rotation || 0;
                          const beamLen = 1000;
-                         const endX = cx + Math.sin(angle) * beamLen;
+                         const endX = cx - Math.sin(angle) * beamLen; // FIX: Invert X to match ctx.rotate direction
                          const endY = cy + Math.cos(angle) * beamLen;
                          
                          const pCx = p.x + p.width/2;
@@ -710,10 +773,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                             const spiralAngle = accumulatorsRef.current.bossPattern * 0.1;
                             for(let i=0; i<4; i++) {
                                 const theta = spiralAngle + (Math.PI/2)*i;
-                                spawnEnemyBullet(cx, cy, Math.cos(theta)*7, Math.sin(theta)*7, '#ff00ff', 12);
+                                spawnEnemyBullet(cx, cy, Math.cos(theta)*7, Math.sin(theta)*7, '#ff00ff', 12, true);
                             }
                             if (Math.random() < 0.2) {
-                                spawnEnemyBullet(cx, cy, (Math.random()-0.5)*5, 3, '#00ffff', 20); // Slow big jamming bullets
+                                spawnEnemyBullet(cx, cy, (Math.random()-0.5)*5, 3, '#00ffff', 20, true); // Slow big jamming bullets
                             }
                         }
                     } else {
@@ -721,7 +784,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                         if (phase === 0) { 
                             const density = (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) ? 0.15 : 0.25;
                             for(let angle = -0.7; angle <= 0.7; angle += density) {
-                                spawnEnemyBullet(cx, cy, Math.sin(angle) * 5, Math.cos(angle) * 5, e.color);
+                                spawnEnemyBullet(cx, cy, Math.sin(angle) * 5, Math.cos(angle) * 5, e.color, 8, true);
                             }
                         } else if (phase === 1) { 
                             const dx = (p.x + p.width/2) - cx;
@@ -737,7 +800,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                             const count = (difficulty === Difficulty.HARDCORE || difficulty === Difficulty.ENDLESS) ? 8 : 4;
                             for(let i=0; i<count; i++) {
                                 const angle = (Math.random() - 0.5) * Math.PI; 
-                                spawnEnemyBullet(cx, cy, Math.sin(angle) * 6, Math.cos(angle) * 6, '#ff9900', 8);
+                                spawnEnemyBullet(cx, cy, Math.sin(angle) * 6, Math.cos(angle) * 6, '#ff9900', 8, true);
                             }
                         }
                     }
@@ -898,10 +961,10 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
                 
             } else {
                 let scoreGain = 50; 
-                if (enemy.type === 'ENEMY_ELITE') scoreGain = 200;
-                if (enemy.type === 'ENEMY_KAMIKAZE') scoreGain = 100;
-                if (enemy.type === 'ENEMY_MISSILE_DRONE') scoreGain = 200;
-                if (enemy.type === 'ENEMY_JAMMER') scoreGain = 200;
+                if (enemy.type === 'ENEMY_ELITE') scoreGain = 300;
+                if (enemy.type === 'ENEMY_KAMIKAZE') scoreGain = 400;
+                if (enemy.type === 'ENEMY_MISSILE_DRONE') scoreGain = 500;
+                if (enemy.type === 'ENEMY_JAMMER') scoreGain = 300;
                 if (enemy.type === 'ENEMY_MISSILE') scoreGain = 10;
                 
                 if (bossActiveRef.current) {
@@ -1294,7 +1357,7 @@ const GameCanvas: React.FC<GameCanvasProps> = ({ difficulty, onGameOver, onGameW
     
     ctx.font = '12px monospace';
     ctx.fillStyle = '#ffff00';
-    ctx.fillText(`武器: LV ${stats.damage + stats.spreadLevel}/${MAX_WEAPON_LEVEL}`, 20, 90);
+    ctx.fillText(`武器: LV ${stats.damage + stats.spreadLevel}/${stats.maxLevel}`, 20, 90);
 
     if (bossActiveRef.current) {
         ctx.fillStyle = 'rgba(255, 0, 0, 0.7)';

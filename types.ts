@@ -43,6 +43,7 @@ export interface Entity {
   decay?: number; // For particles
   size?: number; // For particles/stars
   isShockwave?: boolean; // For particles
+  isBouncing?: boolean; // New: For Boss scatter bullets
   
   // Player specific
   invulnerableTimer?: number;
@@ -54,6 +55,10 @@ export interface Entity {
   shootTimer?: number; // For shooter enemies
   bossTier?: number; // 1 for normal, 2 for elite/infinite
   bossPhase?: number; // 0, 1, 2 for different attack patterns
+  
+  // Boss Phase 4 Laser
+  beamAngle?: number; 
+  hasSplit?: boolean;
 }
 
 export interface MissionBriefing {
